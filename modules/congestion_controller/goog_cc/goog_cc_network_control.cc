@@ -68,6 +68,7 @@ std::vector<PacketFeedback> ReceivedPacketsFeedbackAsRtp(
       pf.pacing_info = fb.sent_packet.pacing_info;
       pf.send_time_ms = fb.sent_packet.send_time.ms();
       pf.unacknowledged_data = fb.sent_packet.prior_unacked_data.bytes();
+      pf.long_sequence_number = fb.sent_packet.sequence_number;  // [add-by-ylr]
       packet_feedback_vector.push_back(pf);
     }
   }
@@ -445,7 +446,7 @@ NetworkControlUpdate GoogCcNetworkController::OnTransportPacketsFeedback(
   }
 
   std::vector<PacketFeedback> received_feedback_vector =
-      ReceivedPacketsFeedbackAsRtp(report);
+      ReceivedPacketsFeedbackAsRtp(report); //[note-by-ylr] 把TransportPacketsFeedback解析为PacketFeedback数组，PacketFeedback包含每个rtp包的发送时间、接收时间、cluster_id等
 
   absl::optional<int64_t> alr_start_time =
       alr_detector_->GetApplicationLimitedRegionStartTime();
@@ -457,7 +458,7 @@ NetworkControlUpdate GoogCcNetworkController::OnTransportPacketsFeedback(
   }
   previously_in_alr = alr_start_time.has_value();
   acknowledged_bitrate_estimator_->IncomingPacketFeedbackVector(
-      received_feedback_vector);
+      received_feedback_vector); //[note-by-ylr] 接收端实际接收的码率 acknowledged_bitrate
   auto acknowledged_bitrate = acknowledged_bitrate_estimator_->bitrate();
   for (const auto& feedback : received_feedback_vector) {
     if (feedback.pacing_info.probe_cluster_id != PacedPacketInfo::kNotAProbe) {
@@ -466,7 +467,9 @@ NetworkControlUpdate GoogCcNetworkController::OnTransportPacketsFeedback(
   }
 
   absl::optional<DataRate> probe_bitrate =
-      probe_bitrate_estimator_->FetchAndResetLastEstimatedBitrate();
+      probe_bitrate_estimator_->FetchAndResetLastEstimatedBitrate(); //[note-by-ylr] 获取当前探测带宽，每个twcc-feedback计算出一个probe_bitrate
+    
+    
   if (fall_back_to_probe_rate_ && !acknowledged_bitrate)
     acknowledged_bitrate = probe_bitrate_estimator_->last_estimate();
   bandwidth_estimation_->SetAcknowledgedRate(acknowledged_bitrate,
@@ -481,6 +484,13 @@ NetworkControlUpdate GoogCcNetworkController::OnTransportPacketsFeedback(
   result = delay_based_bwe_->IncomingPacketFeedbackVector(
       received_feedback_vector, acknowledged_bitrate, probe_bitrate,
       alr_start_time.has_value(), report.feedback_time);
+
+    
+    DataRate probe_temp = probe_bitrate.value_or(DataRate::Zero());
+    if (probe_temp.bps()) {
+       printf("[ppp] probe %lld, acked %lld, result %lld \n", probe_temp.bps(), acknowledged_bitrate ? acknowledged_bitrate->bps() : 0, result.target_bitrate.bps());
+    }
+    
 
   if (result.updated) {
     if (result.probe) {

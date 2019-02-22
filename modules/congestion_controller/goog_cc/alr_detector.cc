@@ -84,6 +84,8 @@ void AlrDetector::SetEstimatedBitrate(int bitrate_bps) {
   const auto target_rate_kbps = static_cast<int64_t>(bitrate_bps) *
                                 bandwidth_usage_percent_ / (1000 * 100);
   alr_budget_.set_target_rate_kbps(rtc::dchecked_cast<int>(target_rate_kbps));
+    
+    printf("[ppp] ------- AlrDetector::SetEstimatedBitrate %d \n", bitrate_bps);
 }
 
 absl::optional<int64_t> AlrDetector::GetApplicationLimitedRegionStartTime()

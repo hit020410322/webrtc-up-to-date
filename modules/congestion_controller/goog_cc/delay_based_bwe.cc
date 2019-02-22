@@ -139,7 +139,7 @@ DelayBasedBwe::Result DelayBasedBwe::IncomingPacketFeedbackVector(
   bool delayed_feedback = true;
   bool recovered_from_overuse = false;
   BandwidthUsage prev_detector_state = delay_detector_->State();
-  for (const auto& packet_feedback : packet_feedback_vector) {
+    for (const auto& packet_feedback : packet_feedback_vector) { //[note-by-ylr]: 用twcc-feedback更新delay_detector_
     if (packet_feedback.send_time_ms < 0)
       continue;
     delayed_feedback = false;

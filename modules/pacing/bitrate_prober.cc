@@ -88,6 +88,7 @@ void BitrateProber::CreateProbeCluster(int bitrate_bps,
                                        int cluster_id) {
   RTC_DCHECK(probing_state_ != ProbingState::kDisabled);
   RTC_DCHECK_GT(bitrate_bps, 0);
+    
   while (!clusters_.empty() &&
          now_ms - clusters_.front().time_created_ms > kProbeClusterTimeoutMs) {
     clusters_.pop();
@@ -103,7 +104,9 @@ void BitrateProber::CreateProbeCluster(int bitrate_bps,
   cluster.pace_info.probe_cluster_id = cluster_id;
   clusters_.push(cluster);
 
-  RTC_LOG(LS_INFO) << "Probe cluster (bitrate:min bytes:min packets): ("
+    RTC_LOG(LS_INFO) << "Probe cluster (id:retries:bitrate:min bytes:min packets): ("
+                   << cluster.pace_info.probe_cluster_id << ":"
+                   << cluster.retries << ":"
                    << cluster.pace_info.send_bitrate_bps << ":"
                    << cluster.pace_info.probe_cluster_min_bytes << ":"
                    << cluster.pace_info.probe_cluster_min_probes << ")";

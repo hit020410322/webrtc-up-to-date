@@ -94,6 +94,13 @@ int ProbeBitrateEstimator::HandleProbeAndEstimateBitrate(
                    kMinReceivedProbesPercent / 100;
   int min_bytes = packet_feedback.pacing_info.probe_cluster_min_bytes *
                   kMinReceivedBytesPercent / 100;
+    
+  if (cluster->num_probes < min_probes || cluster->size_total < min_bytes * 8)
+      printf("[twcc] [Probe-OnFeedback] [ cluster_id : transSeq_id : pkt_size_bytes ] [ %d : %lld : %lu ]\n",
+             cluster_id ,
+             packet_feedback.long_sequence_number,
+             packet_feedback.payload_size);
+    
   if (cluster->num_probes < min_probes || cluster->size_total < min_bytes * 8)
     return -1;
 
@@ -168,6 +175,14 @@ int ProbeBitrateEstimator::HandleProbeAndEstimateBitrate(
   }
   last_estimate_ = DataRate::bps(res);
   estimated_bitrate_bps_ = res;
+    
+    printf("[twcc] [Probe-OnFeedback] [success] [sendbr : rcvbr] [cluster_id : transSeq_id : pkt_size_bytes]  [ %.0f kb/s : %.0f kb/s] [ %d : %lld : %lu ]\n",
+           send_bps/1000,
+           receive_bps/1000,
+           cluster_id ,
+           packet_feedback.long_sequence_number,
+           packet_feedback.payload_size);
+    
   return *estimated_bitrate_bps_;
 }
 

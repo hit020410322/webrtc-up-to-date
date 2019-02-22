@@ -599,6 +599,7 @@ bool RTPSender::PrepareAndSendPacket(std::unique_ptr<RtpPacketToSend> packet,
     options.included_in_feedback = has_transport_seq_num;
   }
   if (has_transport_seq_num) {
+     // printf("[vp8] [sendPacket] [payload_size : transSeq_id : seq_no] [ %lu : %d : %hu ]\n", packet_to_send->payload_size(), options.packet_id, (*packet_to_send).SequenceNumber());
     AddPacketToTransportFeedback(options.packet_id, *packet_to_send,
                                  pacing_info);
   }
@@ -667,6 +668,9 @@ bool RTPSender::SendToNetwork(std::unique_ptr<RtpPacketToSend> packet,
   uint32_t ssrc = packet->Ssrc();
   if (paced_sender_) {
     uint16_t seq_no = packet->SequenceNumber();
+      
+    //  printf("[vp8] [payload_size : seq_no] [ %lu : %hu ]\n", packet->payload_size(), seq_no);
+    
     // Correct offset between implementations of millisecond time stamps in
     // TickTime and Clock.
     int64_t corrected_time_ms = packet->capture_time_ms() + clock_delta_ms_;

@@ -201,6 +201,7 @@ void AimdRateControl::SetEstimate(DataRate bitrate, Timestamp at_time) {
   if (current_bitrate_ < prev_bitrate) {
     time_last_bitrate_decrease_ = at_time;
   }
+    //printf("[<#const char *, ...#>]")
 }
 
 double AimdRateControl::GetNearMaxIncreaseRateBpsPerSecond() const {

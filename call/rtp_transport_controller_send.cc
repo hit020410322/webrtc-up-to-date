@@ -67,7 +67,7 @@ RtpTransportControllerSend::RtpTransportControllerSend(
       observer_(nullptr),
       controller_factory_override_(controller_factory),
       controller_factory_fallback_(
-          absl::make_unique<GoogCcNetworkControllerFactory>(event_log)),
+          absl::make_unique<GoogCcNetworkControllerFactory>(event_log)), //[note-by-ylr] 创建GoogCcNetworkControllerFactory工厂类
       process_interval_(controller_factory_fallback_->GetProcessInterval()),
       last_report_block_time_(Timestamp::ms(clock_->TimeInMilliseconds())),
       reset_feedback_on_route_change_(

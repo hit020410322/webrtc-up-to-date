@@ -185,6 +185,7 @@ void PacedSender::SetPacingRates(uint32_t pacing_rate_bps,
   RTC_DCHECK(pacing_rate_bps > 0);
   pacing_bitrate_kbps_ = pacing_rate_bps / 1000;
   padding_budget_.set_target_rate_kbps(padding_rate_bps / 1000);
+    printf("[pacing_br : padding_br] [ %u : %u ]\n", pacing_rate_bps/1000, padding_rate_bps/1000);
 }
 
 void PacedSender::InsertPacket(RtpPacketSender::Priority priority,
@@ -197,6 +198,7 @@ void PacedSender::InsertPacket(RtpPacketSender::Priority priority,
   RTC_DCHECK(pacing_bitrate_kbps_ > 0)
       << "SetPacingRate must be called before InsertPacket.";
 
+   // printf("[vp8] [PacedSender::InsertPacket] [ssrc : payload_size : seq_no] [ %u : %lu : %hu ]\n", ssrc, bytes, sequence_number);
   int64_t now_ms = TimeMilliseconds();
   prober_.OnIncomingPacket(bytes);
 

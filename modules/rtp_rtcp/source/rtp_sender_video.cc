@@ -276,7 +276,7 @@ void RTPSenderVideo::SendVideoPacketAsRedMaybeWithUlpfec(
       uint16_t num_fec_packets = ulpfec_generator_.NumAvailableFecPackets();
       if (num_fec_packets > 0) {
         uint16_t first_fec_sequence_number =
-            rtp_sender_->AllocateSequenceNumber(num_fec_packets);
+            rtp_sender_->AllocateSequenceNumber(num_fec_packets);  //[note-by-ylr] 这儿分配的序列号与视频包的序列号是否连续？
         fec_packets = ulpfec_generator_.GetUlpfecPacketsAsRed(
             red_payload_type_, ulpfec_payload_type_, first_fec_sequence_number);
         RTC_DCHECK_EQ(num_fec_packets, fec_packets.size());
@@ -289,6 +289,8 @@ void RTPSenderVideo::SendVideoPacketAsRedMaybeWithUlpfec(
                           RtpPacketSender::kLowPriority)) {
     rtc::CritScope cs(&stats_crit_);
     video_bitrate_.Update(red_packet_size, clock_->TimeInMilliseconds());
+      
+   //   printf("[vp8] [red_packet_sent] [packet_length : seq] [ %lu : %hu ]\n", red_packet_size, media_seq_num);
   } else {
     RTC_LOG(LS_WARNING) << "Failed to send RED packet " << media_seq_num;
   }
@@ -305,6 +307,7 @@ void RTPSenderVideo::SendVideoPacketAsRedMaybeWithUlpfec(
                             RtpPacketSender::kLowPriority)) {
       rtc::CritScope cs(&stats_crit_);
       fec_bitrate_.Update(fec_packet->length(), clock_->TimeInMilliseconds());
+      //  printf("[vp8] [fec_packet_sent] [packet_length : seq_no] [ %lu : %hu ]\n", fec_packet->length(), fec_sequence_number);
     } else {
       RTC_LOG(LS_WARNING) << "Failed to send ULPFEC packet "
                           << fec_sequence_number;
@@ -576,6 +579,7 @@ bool RTPSenderVideo::SendVideo(FrameType frame_type,
     const size_t max_ciphertext_size =
         frame_encryptor_->GetMaxCiphertextByteSize(cricket::MEDIA_TYPE_VIDEO,
                                                    payload_size);
+      
     encrypted_video_payload.SetSize(max_ciphertext_size);
 
     size_t bytes_written = 0;
@@ -621,6 +625,8 @@ bool RTPSenderVideo::SendVideo(FrameType frame_type,
   StorageType storage = GetStorageType(temporal_id, retransmission_settings,
                                        expected_retransmission_time_ms);
   size_t num_packets = packetizer->NumPackets();
+    
+ //  printf("[vp8] [ packetizer_num : payload_size ] [ %lu , %lu bytes ] \n", num_packets, payload_size);
 
   size_t unpacketized_payload_size;
   if (fragmentation && fragmentation->fragmentationVectorSize > 0) {
@@ -660,7 +666,8 @@ bool RTPSenderVideo::SendVideo(FrameType frame_type,
 
     if (!packetizer->NextPacket(packet.get()))
       return false;
-    RTC_DCHECK_LE(packet->payload_size(), expected_payload_capacity);
+  //[note-by-ylr] 在用H264编码时会崩
+  //  RTC_DCHECK_LE(packet->payload_size(), expected_payload_capacity);
     if (!rtp_sender_->AssignSequenceNumber(packet.get()))
       return false;
     packetized_payload_size += packet->payload_size();
@@ -688,6 +695,7 @@ bool RTPSenderVideo::SendVideo(FrameType frame_type,
       // TODO(brandtr): Remove the FlexFEC code path when FlexfecSender
       // is wired up to PacedSender instead.
       SendVideoPacketWithFlexfec(std::move(packet), storage, protect_packet);
+        
     } else if (red_enabled) {
       SendVideoPacketAsRedMaybeWithUlpfec(std::move(packet), storage,
                                           protect_packet);

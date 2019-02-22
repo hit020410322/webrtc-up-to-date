@@ -216,6 +216,7 @@ int LibvpxVp8Encoder::Release() {
 
 int LibvpxVp8Encoder::SetRateAllocation(const VideoBitrateAllocation& bitrate,
                                         uint32_t new_framerate) {
+    
   if (!inited_)
     return WEBRTC_VIDEO_CODEC_UNINITIALIZED;
 
@@ -233,6 +234,8 @@ int LibvpxVp8Encoder::SetRateAllocation(const VideoBitrateAllocation& bitrate,
     return WEBRTC_VIDEO_CODEC_OK;
   }
 
+    
+ //   printf("[vp8] [SetBitrate] %s \n", bitrate.ToString().c_str());
   // At this point, bitrate allocation should already match codec settings.
   if (codec_.maxBitrate > 0)
     RTC_DCHECK_LE(bitrate.get_sum_kbps(), codec_.maxBitrate);
@@ -866,6 +869,7 @@ void LibvpxVp8Encoder::PopulateCodecSpecific(CodecSpecificInfo* codec_specific,
 int LibvpxVp8Encoder::GetEncodedPartitions(const VideoFrame& input_image) {
   int stream_idx = static_cast<int>(encoders_.size()) - 1;
   int result = WEBRTC_VIDEO_CODEC_OK;
+
   for (size_t encoder_idx = 0; encoder_idx < encoders_.size();
        ++encoder_idx, --stream_idx) {
     vpx_codec_iter_t iter = NULL;

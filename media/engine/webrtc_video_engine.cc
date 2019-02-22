@@ -551,8 +551,19 @@ WebRtcVideoChannel::SelectSendVideoCodec(
     // following the spec in https://tools.ietf.org/html/rfc6184#section-8.2.2
     // since we should limit the encode level to the lower of local and remote
     // level when level asymmetry is not allowed.
-    if (FindMatchingCodec(local_supported_codecs, remote_mapped_codec.codec))
+
+      //[note-by-ylr] remote_mapped_codecs包含四中编码codec: h264 (base-profile), h264 (high-profile), vp8, vp9
+#ifndef LOOPBACK_VP8
+      {
+          if (FindMatchingCodec(local_supported_codecs, remote_mapped_codec.codec))
+              if (remote_mapped_codec.codec.name == "VP8")
+                return remote_mapped_codec;
+          
+      }
+#else
+      if (FindMatchingCodec(local_supported_codecs, remote_mapped_codec.codec))
       return remote_mapped_codec;
+#endif
   }
   // No remote codec was supported.
   return absl::nullopt;

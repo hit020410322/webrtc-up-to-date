@@ -349,6 +349,11 @@ std::vector<ProbeClusterConfig> ProbeController::Process(int64_t at_time_ms) {
       }
     }
   }
+    
+    
+    if (now_ms - time_last_probing_initiated_ms_ > 5000) {
+        return InitiateProbing(now_ms, {estimated_bitrate_bps_ * 2}, true);
+    }
   return std::vector<ProbeClusterConfig>();
 }
 

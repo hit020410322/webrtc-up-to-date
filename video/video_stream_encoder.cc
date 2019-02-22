@@ -1094,6 +1094,8 @@ EncodedImageCallback::Result VideoStreamEncoder::OnEncodedImage(
 
   EncodedImageCallback::Result result =
       sink_->OnEncodedImage(encoded_image, codec_specific_info, fragmentation);
+    
+   // printf("[vp8][OnEncodedImage] length is %lu bytes\n", encoded_image._length);
 
   int64_t time_sent_us = rtc::TimeMicros();
   // We are only interested in propagating the meta-data about the image, not
