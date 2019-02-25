@@ -131,6 +131,8 @@ rtc_static_library("video_coding") {
     "jitter_buffer_common.h",
     "jitter_estimator.cc",
     "jitter_estimator.h",
+    "loss_notification_controller.cc",
+    "loss_notification_controller.h",
     "media_opt_util.cc",
     "media_opt_util.h",
     "packet_buffer.cc",
@@ -151,7 +153,6 @@ rtc_static_library("video_coding") {
     "video_coding_impl.cc",
     "video_coding_impl.h",
     "video_receiver.cc",
-    "video_sender.cc",
   ]
 
   if (!build_with_chromium && is_clang) {
@@ -853,6 +854,7 @@ if (rtc_include_tests) {
       "include/mock/mock_vcm_callbacks.h",
       "jitter_buffer_unittest.cc",
       "jitter_estimator_tests.cc",
+      "loss_notification_controller_unittest.cc",
       "nack_module_unittest.cc",
       "receiver_unittest.cc",
       "rtp_frame_reference_finder_unittest.cc",
@@ -870,7 +872,6 @@ if (rtc_include_tests) {
       "video_codec_initializer_unittest.cc",
       "video_packet_buffer_unittest.cc",
       "video_receiver_unittest.cc",
-      "video_sender_unittest.cc",
     ]
     if (rtc_use_h264) {
       sources += [
