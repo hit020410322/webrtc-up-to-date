@@ -14,28 +14,22 @@
 
 namespace rtc {
 
-TaskQueue::TaskQueue(const char* queue_name, Priority priority)
-    // For backward compatibility impl_ need to be scoped_refptr<Impl>,
-    // But this implementation treat impl_ as
-    // std::unique_ptr<webrtc::TaskQueueBase, webrtc::TaskQueueDeleter> abusing
-    // fact that both classes are wrappers around raw pointer.
-    : impl_(webrtc::GlobalTaskQueueFactory()
-                .CreateTaskQueue(queue_name, priority)
-                .release()) {
+TaskQueue::TaskQueue(
+    std::unique_ptr<webrtc::TaskQueueBase, webrtc::TaskQueueDeleter> task_queue)
+    : impl_(task_queue.release()) {
   impl_->task_queue_ = this;
 }
 
+TaskQueue::TaskQueue(const char* queue_name, Priority priority)
+    : TaskQueue(webrtc::GlobalTaskQueueFactory().CreateTaskQueue(queue_name,
+                                                                 priority)) {}
+
 TaskQueue::~TaskQueue() {
-  // TODO(danilchap): change impl_ to webrtc::TaskQueueBase* when dependenent
-  // projects stop using link-injection to override task queue and thus do not
-  // rely on exact TaskQueue layout.
   // There might running task that tries to rescheduler itself to the TaskQueue
-  // and not yet away TaskQueue destructor is called.
+  // and not yet aware TaskQueue destructor is called.
   // Calling back to TaskQueue::PostTask need impl_ pointer still be valid, so
-  // Start the destruction first, ...
+  // do not invalidate impl_ pointer until Delete returns.
   impl_->Delete();
-  // release the pointer later.
-  const_cast<rtc::scoped_refptr<Impl>&>(impl_).release();
 }
 
 // static

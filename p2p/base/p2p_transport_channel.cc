@@ -414,12 +414,17 @@ webrtc::IceTransportState P2PTransportChannel::ComputeIceTransportState()
     return webrtc::IceTransportState::kDisconnected;
   }
 
-  if (gathering_state_ == kIceGatheringNew)
+  if (!had_connection_ && !has_connection) {
     return webrtc::IceTransportState::kNew;
-  else if (has_connection)
-    return webrtc::IceTransportState::kConnected;
-  else
+  }
+
+  if (has_connection && !writable()) {
+    // A candidate pair has been formed by adding a remote candidate
+    // and gathering a local candidate.
     return webrtc::IceTransportState::kChecking;
+  }
+
+  return webrtc::IceTransportState::kConnected;
 }
 
 void P2PTransportChannel::SetIceParameters(const IceParameters& ice_params) {
@@ -634,6 +639,9 @@ void P2PTransportChannel::SetIceConfig(const IceConfig& config) {
 
   if (webrtc::field_trial::IsEnabled("WebRTC-ExtraICEPing")) {
     RTC_LOG(LS_INFO) << "Set WebRTC-ExtraICEPing: Enabled";
+  }
+  if (webrtc::field_trial::IsEnabled("WebRTC-TurnAddMultiMapping")) {
+    RTC_LOG(LS_INFO) << "Set WebRTC-TurnAddMultiMapping: Enabled";
   }
 
   webrtc::BasicRegatheringController::Config regathering_config(

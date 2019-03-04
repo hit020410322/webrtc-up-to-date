@@ -15,7 +15,6 @@
 #include <vector>
 
 #include "absl/memory/memory.h"
-
 #include "media/base/media_constants.h"
 #include "modules/pacing/packet_router.h"
 #include "modules/remote_bitrate_estimator/include/remote_bitrate_estimator.h"
@@ -112,7 +111,8 @@ RtpVideoStreamReceiver::RtpVideoStreamReceiver(
                                     packet_router)),
       complete_frame_callback_(complete_frame_callback),
       keyframe_request_sender_(keyframe_request_sender),
-      has_received_frame_(false) {
+      has_received_frame_(false),
+      frames_decryptable_(false) {
   constexpr bool remb_candidate = true;
   packet_router_->AddReceiveRtpModule(rtp_rtcp_.get(), remb_candidate);
 
@@ -143,7 +143,11 @@ RtpVideoStreamReceiver::RtpVideoStreamReceiver(
 
   process_thread_->RegisterModule(rtp_rtcp_.get(), RTC_FROM_HERE);
 
-  if (config_.rtp.nack.rtp_history_ms != 0) {
+  if (webrtc::field_trial::IsEnabled("WebRTC-RtcpLossNotification")) {
+    loss_notification_controller_ =
+        absl::make_unique<LossNotificationController>(keyframe_request_sender_,
+                                                      this);
+  } else if (config_.rtp.nack.rtp_history_ms != 0) {
     nack_module_ = absl::make_unique<NackModule>(clock_, nack_sender,
                                                  keyframe_request_sender);
     process_thread_->RegisterModule(nack_module_.get(), RTC_FROM_HERE);
@@ -171,7 +175,7 @@ RtpVideoStreamReceiver::RtpVideoStreamReceiver(
   if (frame_decryptor != nullptr ||
       config_.crypto_options.sframe.require_frame_encryption) {
     buffered_frame_decryptor_ =
-        absl::make_unique<BufferedFrameDecryptor>(this, frame_decryptor);
+        absl::make_unique<BufferedFrameDecryptor>(this, this, frame_decryptor);
   }
 }
 
@@ -234,6 +238,8 @@ int32_t RtpVideoStreamReceiver::OnReceivedPayloadData(
       ntp_estimator_.Estimate(rtp_header->header.timestamp);
 
   VCMPacket packet(payload_data, payload_size, rtp_header_with_ntp);
+  packet.generic_descriptor = generic_descriptor;
+
   if (nack_module_) {
     const bool is_keyframe =
         rtp_header->video_header().is_first_packet_in_frame &&
@@ -246,6 +252,16 @@ int32_t RtpVideoStreamReceiver::OnReceivedPayloadData(
     packet.timesNacked = -1;
   }
   packet.receive_time_ms = clock_->TimeInMilliseconds();
+
+  if (loss_notification_controller_) {
+    if (is_recovered) {
+      // TODO(bugs.webrtc.org/10336): Implement support for reordering.
+      RTC_LOG(LS_WARNING)
+          << "LossNotificationController does not support reordering.";
+    } else {
+      loss_notification_controller_->OnReceivedPacket(packet);
+    }
+  }
 
   if (packet.sizeBytes == 0) {
     NotifyReceiverOfEmptyPacket(packet.seqNum);
@@ -276,8 +292,6 @@ int32_t RtpVideoStreamReceiver::OnReceivedPayloadData(
     memcpy(data, packet.dataPtr, packet.sizeBytes);
     packet.dataPtr = data;
   }
-
-  packet.generic_descriptor = generic_descriptor;
 
   packet_buffer_->InsertPacket(&packet);
   return 0;
@@ -364,6 +378,14 @@ int32_t RtpVideoStreamReceiver::RequestKeyFrame() {
   return rtp_rtcp_->RequestKeyFrame();
 }
 
+void RtpVideoStreamReceiver::SendLossNotification(
+    uint16_t last_decoded_seq_num,
+    uint16_t last_received_seq_num,
+    bool decodability_flag) {
+  rtp_rtcp_->SendLossNotification(last_decoded_seq_num, last_received_seq_num,
+                                  decodability_flag);
+}
+
 bool RtpVideoStreamReceiver::IsUlpfecEnabled() const {
   return config_.rtp.ulpfec_payload_type != -1;
 }
@@ -377,6 +399,10 @@ void RtpVideoStreamReceiver::RequestPacketRetransmit(
   rtp_rtcp_->SendNack(sequence_numbers);
 }
 
+bool RtpVideoStreamReceiver::IsDecryptable() const {
+  return frames_decryptable_.load();
+}
+
 int32_t RtpVideoStreamReceiver::ResendPackets(const uint16_t* sequence_numbers,
                                               uint16_t length) {
   return rtp_rtcp_->SendNACK(sequence_numbers, length);
@@ -385,15 +411,25 @@ int32_t RtpVideoStreamReceiver::ResendPackets(const uint16_t* sequence_numbers,
 void RtpVideoStreamReceiver::OnAssembledFrame(
     std::unique_ptr<video_coding::RtpFrameObject> frame) {
   RTC_DCHECK_RUN_ON(&network_tc_);
-  // Request a key frame as soon as possible.
-  bool key_frame_requested = false;
-  if (!has_received_frame_) {
-    has_received_frame_ = true;
+  RTC_DCHECK(frame);
+
+  absl::optional<RtpGenericFrameDescriptor> descriptor =
+      frame->GetGenericFrameDescriptor();
+
+  if (loss_notification_controller_ && descriptor) {
+    loss_notification_controller_->OnAssembledFrame(
+        frame->first_seq_num(), descriptor->FrameId(),
+        descriptor->Discardable().value_or(false),
+        descriptor->FrameDependenciesDiffs());
+  } else if (!has_received_frame_) {
+    // Request a key frame as soon as possible.
     if (frame->FrameType() != kVideoFrameKey) {
-      key_frame_requested = true;
       keyframe_request_sender_->RequestKeyFrame();
     }
   }
+
+  has_received_frame_ = true;
+
   if (buffered_frame_decryptor_ == nullptr) {
     reference_finder_->ManageFrame(std::move(frame));
   } else {
@@ -416,6 +452,10 @@ void RtpVideoStreamReceiver::OnCompleteFrame(
 void RtpVideoStreamReceiver::OnDecryptedFrame(
     std::unique_ptr<video_coding::RtpFrameObject> frame) {
   reference_finder_->ManageFrame(std::move(frame));
+}
+
+void RtpVideoStreamReceiver::OnDecryptionStatusChange(int status) {
+  frames_decryptable_.store(status == 0);
 }
 
 void RtpVideoStreamReceiver::UpdateRtt(int64_t max_rtt_ms) {
@@ -606,6 +646,10 @@ void RtpVideoStreamReceiver::NotifyReceiverOfEmptyPacket(uint16_t seq_num) {
   if (nack_module_) {
     nack_module_->OnReceivedPacket(seq_num, /* is_keyframe = */ false,
                                    /* is _recovered = */ false);
+  }
+  if (loss_notification_controller_) {
+    RTC_LOG(LS_WARNING)
+        << "LossNotificationController does not expect empty packets.";
   }
 }
 

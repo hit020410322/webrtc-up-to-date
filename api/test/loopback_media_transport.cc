@@ -67,6 +67,10 @@ class WrapperMediaTransport : public MediaTransportInterface {
     wrapped_->SetMediaTransportStateCallback(callback);
   }
 
+  RTCError OpenChannel(int channel_id) override {
+    return wrapped_->OpenChannel(channel_id);
+  }
+
   RTCError SendData(int channel_id,
                     const SendDataParams& params,
                     const rtc::CopyOnWriteBuffer& buffer) override {
@@ -84,6 +88,10 @@ class WrapperMediaTransport : public MediaTransportInterface {
   void SetAllocatedBitrateLimits(
       const MediaTransportAllocatedBitrateLimits& limits) override {}
 
+  absl::optional<std::string> GetTransportParametersOffer() const override {
+    return wrapped_->GetTransportParametersOffer();
+  }
+
  private:
   MediaTransportInterface* wrapped_;
 };
@@ -94,26 +102,74 @@ WrapperMediaTransportFactory::WrapperMediaTransportFactory(
     MediaTransportInterface* wrapped)
     : wrapped_(wrapped) {}
 
+WrapperMediaTransportFactory::WrapperMediaTransportFactory(
+    MediaTransportFactory* wrapped)
+    : wrapped_factory_(wrapped) {}
+
 RTCErrorOr<std::unique_ptr<MediaTransportInterface>>
 WrapperMediaTransportFactory::CreateMediaTransport(
     rtc::PacketTransportInternal* packet_transport,
     rtc::Thread* network_thread,
     const MediaTransportSettings& settings) {
+  created_transport_count_++;
+  if (wrapped_factory_) {
+    return wrapped_factory_->CreateMediaTransport(packet_transport,
+                                                  network_thread, settings);
+  }
   return {absl::make_unique<WrapperMediaTransport>(wrapped_)};
 }
+
+std::string WrapperMediaTransportFactory::GetTransportName() const {
+  if (wrapped_factory_) {
+    return wrapped_factory_->GetTransportName();
+  }
+  return "wrapped-transport";
+}
+
+int WrapperMediaTransportFactory::created_transport_count() const {
+  return created_transport_count_;
+}
+
+RTCErrorOr<std::unique_ptr<MediaTransportInterface>>
+WrapperMediaTransportFactory::CreateMediaTransport(
+    rtc::Thread* network_thread,
+    const MediaTransportSettings& settings) {
+  created_transport_count_++;
+  if (wrapped_factory_) {
+    return wrapped_factory_->CreateMediaTransport(network_thread, settings);
+  }
+  return {absl::make_unique<WrapperMediaTransport>(wrapped_)};
+}
+
+MediaTransportPair::MediaTransportPair(rtc::Thread* thread)
+    : first_(thread, &second_),
+      second_(thread, &first_),
+      first_factory_(&first_),
+      second_factory_(&second_) {}
+
+MediaTransportPair::~MediaTransportPair() = default;
 
 MediaTransportPair::LoopbackMediaTransport::LoopbackMediaTransport(
     rtc::Thread* thread,
     LoopbackMediaTransport* other)
-    : thread_(thread), other_(other) {}
+    : thread_(thread), other_(other) {
+  RTC_LOG(LS_INFO) << "LoopbackMediaTransport";
+}
 
 MediaTransportPair::LoopbackMediaTransport::~LoopbackMediaTransport() {
+  RTC_LOG(LS_INFO) << "~LoopbackMediaTransport";
   rtc::CritScope lock(&sink_lock_);
   RTC_CHECK(audio_sink_ == nullptr);
   RTC_CHECK(video_sink_ == nullptr);
   RTC_CHECK(data_sink_ == nullptr);
   RTC_CHECK(target_transfer_rate_observers_.empty());
   RTC_CHECK(rtt_observers_.empty());
+}
+
+absl::optional<std::string>
+MediaTransportPair::LoopbackMediaTransport::GetTransportParametersOffer()
+    const {
+  return "loopback-media-transport-parameters";
 }
 
 RTCError MediaTransportPair::LoopbackMediaTransport::SendAudioFrame(
@@ -263,6 +319,12 @@ void MediaTransportPair::LoopbackMediaTransport::SetMediaTransportStateCallback(
     RTC_DCHECK_RUN_ON(thread_);
     OnStateChanged();
   });
+}
+
+RTCError MediaTransportPair::LoopbackMediaTransport::OpenChannel(
+    int channel_id) {
+  // No-op.  No need to open channels for the loopback.
+  return RTCError::OK();
 }
 
 RTCError MediaTransportPair::LoopbackMediaTransport::SendData(

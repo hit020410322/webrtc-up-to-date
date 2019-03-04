@@ -55,6 +55,8 @@ rtc_static_library("rtc_pc_base") {
     "rtp_transport.cc",
     "rtp_transport.h",
     "rtp_transport_internal.h",
+    "sctp_transport.cc",
+    "sctp_transport.h",
     "session_description.cc",
     "session_description.h",
     "simulcast_description.cc",
@@ -107,11 +109,6 @@ rtc_static_library("rtc_pc_base") {
   }
 
   public_configs = [ ":rtc_pc_config" ]
-
-  if (!build_with_chromium && is_clang) {
-    # Suppress warnings from the Chromium Clang plugin (bugs.webrtc.org/163).
-    suppressed_configs += [ "//build/config/clang:find_bad_constructs" ]
-  }
 }
 
 rtc_source_set("rtc_pc") {
@@ -151,6 +148,10 @@ rtc_static_library("peerconnection") {
     "peer_connection_factory.cc",
     "peer_connection_factory.h",
     "peer_connection_internal.h",
+    "playout_latency.cc",
+    "playout_latency.h",
+    "playout_latency_interface.h",
+    "playout_latency_proxy.h",
     "remote_audio_source.cc",
     "remote_audio_source.h",
     "rtc_stats_collector.cc",
@@ -187,11 +188,6 @@ rtc_static_library("peerconnection") {
     "webrtc_session_description_factory.cc",
     "webrtc_session_description_factory.h",
   ]
-
-  if (!build_with_chromium && is_clang) {
-    # Suppress warnings from the Chromium Clang plugin (bugs.webrtc.org/163).
-    suppressed_configs += [ "//build/config/clang:find_bad_constructs" ]
-  }
 
   deps = [
     ":rtc_pc_base",
@@ -232,7 +228,6 @@ rtc_static_library("peerconnection") {
 
 rtc_source_set("libjingle_peerconnection") {
   visibility = [ "*" ]
-  allow_poison = [ "audio_codecs" ]  # TODO(bugs.webrtc.org/8396): Remove.
   deps = [
     ":peerconnection",
     "../api:create_peerconnection_factory",
@@ -248,13 +243,14 @@ if (rtc_include_tests) {
       "channel_manager_unittest.cc",
       "channel_unittest.cc",
       "dtls_srtp_transport_unittest.cc",
-      "dtlstransport_unittest.cc",
+      "dtls_transport_unittest.cc",
       "ice_transport_unittest.cc",
       "jsep_transport_controller_unittest.cc",
       "jsep_transport_unittest.cc",
       "media_session_unittest.cc",
       "rtcp_mux_filter_unittest.cc",
       "rtp_transport_unittest.cc",
+      "sctp_transport_unittest.cc",
       "session_description_unittest.cc",
       "srtp_filter_unittest.cc",
       "srtp_session_unittest.cc",
@@ -264,11 +260,6 @@ if (rtc_include_tests) {
     ]
 
     include_dirs = [ "//third_party/libsrtp/srtp" ]
-
-    if (!build_with_chromium && is_clang) {
-      # Suppress warnings from the Chromium Clang plugin (bugs.webrtc.org/163).
-      suppressed_configs += [ "//build/config/clang:find_bad_constructs" ]
-    }
 
     if (is_win) {
       libs = [ "strmiids.lib" ]
@@ -284,6 +275,7 @@ if (rtc_include_tests) {
       "../api:fake_media_transport",
       "../api:ice_transport_factory",
       "../api:libjingle_peerconnection_api",
+      "../api:loopback_media_transport",
       "../call:rtp_interfaces",
       "../call:rtp_receiver",
       "../logging:rtc_event_log_api",
@@ -351,10 +343,6 @@ if (rtc_include_tests) {
       "//third_party/abseil-cpp/absl/memory",
       "//third_party/abseil-cpp/absl/types:optional",
     ]
-    if (!build_with_chromium && is_clang) {
-      # Suppress warnings from the Chromium Clang plugin (bugs.webrtc.org/163).
-      suppressed_configs += [ "//build/config/clang:find_bad_constructs" ]
-    }
   }
 
   rtc_source_set("peerconnection_wrapper") {
@@ -374,10 +362,6 @@ if (rtc_include_tests) {
       "../rtc_base:rtc_base_approved",
       "../test:test_support",
     ]
-    if (!build_with_chromium && is_clang) {
-      # Suppress warnings from the Chromium Clang plugin (bugs.webrtc.org/163).
-      suppressed_configs += [ "//build/config/clang:find_bad_constructs" ]
-    }
   }
 
   rtc_source_set("pc_test_utils") {
@@ -397,6 +381,7 @@ if (rtc_include_tests) {
       "test/frame_generator_capturer_video_track_source.h",
       "test/mock_channel_interface.h",
       "test/mock_data_channel.h",
+      "test/mock_delayable.h",
       "test/mock_peer_connection_observers.h",
       "test/mock_rtp_receiver_internal.h",
       "test/mock_rtp_sender_internal.h",
@@ -445,11 +430,6 @@ if (rtc_include_tests) {
       "//third_party/abseil-cpp/absl/memory",
       "//third_party/abseil-cpp/absl/types:optional",
     ]
-
-    if (!build_with_chromium && is_clang) {
-      # Suppress warnings from the Chromium Clang plugin (bugs.webrtc.org/163).
-      suppressed_configs += [ "//build/config/clang:find_bad_constructs" ]
-    }
   }
 
   rtc_test("peerconnection_unittests") {
@@ -477,6 +457,7 @@ if (rtc_include_tests) {
       "peer_connection_simulcast_unittest.cc",
       "peer_connection_wrapper.cc",
       "peer_connection_wrapper.h",
+      "playout_latency_unittest.cc",
       "proxy_unittest.cc",
       "rtc_stats_collector_unittest.cc",
       "rtc_stats_integrationtest.cc",
@@ -497,11 +478,6 @@ if (rtc_include_tests) {
 
     if (rtc_enable_sctp) {
       defines = [ "HAVE_SCTP" ]
-    }
-
-    if (!build_with_chromium && is_clang) {
-      # Suppress warnings from the Chromium Clang plugin (bugs.webrtc.org/163).
-      suppressed_configs += [ "//build/config/clang:find_bad_constructs" ]
     }
 
     deps = [

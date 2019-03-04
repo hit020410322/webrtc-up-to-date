@@ -498,7 +498,6 @@ rtc_source_set("rtc_task_queue_api") {
   ]
   deps = [
     ":macromagic",
-    "../api:scoped_refptr",
     "../api/task_queue",
     "system:rtc_export",
     "//third_party/abseil-cpp/absl/memory",
@@ -522,7 +521,6 @@ if (rtc_enable_libevent) {
       ":safe_conversions",
       ":timeutils",
       "../api/task_queue",
-      "../api/task_queue:task_queue_factory",
       "//third_party/abseil-cpp/absl/memory",
       "//third_party/abseil-cpp/absl/strings",
     ]
@@ -543,7 +541,6 @@ if (is_mac || is_ios) {
       ":checks",
       ":logging",
       "../api/task_queue",
-      "../api/task_queue:task_queue_factory",
       "//third_party/abseil-cpp/absl/memory",
       "//third_party/abseil-cpp/absl/strings",
     ]
@@ -568,7 +565,6 @@ if (is_win) {
       ":safe_conversions",
       ":timeutils",
       "../api/task_queue",
-      "../api/task_queue:task_queue_factory",
       "//third_party/abseil-cpp/absl/memory",
       "//third_party/abseil-cpp/absl/strings",
     ]
@@ -592,7 +588,6 @@ rtc_source_set("rtc_task_queue_stdlib") {
     ":safe_conversions",
     ":timeutils",
     "../api/task_queue",
-    "../api/task_queue:task_queue_factory",
     "//third_party/abseil-cpp/absl/memory",
     "//third_party/abseil-cpp/absl/strings",
   ]
@@ -616,8 +611,8 @@ rtc_source_set("sequenced_task_checker") {
     ":checks",
     ":criticalsection",
     ":macromagic",
-    ":rtc_task_queue",
     ":thread_checker",
+    "../api/task_queue",
   ]
 }
 
@@ -1050,17 +1045,6 @@ rtc_static_library("rtc_base") {
   }
 }
 
-rtc_source_set("rtc_post_message_with_functor") {
-  sources = [
-    "post_message_with_functor.h",
-  ]
-  deps = [
-    ":checks",
-    ":rtc_base",
-    ":rtc_event",
-  ]
-}
-
 rtc_source_set("gtest_prod") {
   visibility = [ "*" ]
   sources = [
@@ -1321,7 +1305,6 @@ if (rtc_include_tests) {
       ":rtc_base_tests_main",
       ":rtc_base_tests_utils",
       ":rtc_task_queue",
-      ":rtc_task_queue_for_test",
       "../test:test_support",
       "//third_party/abseil-cpp/absl/memory",
     ]
@@ -1392,21 +1375,6 @@ if (rtc_include_tests) {
       ":rtc_base_tests_main",
       ":rtc_base_tests_utils",
       ":rtc_json",
-      "../test:test_support",
-    ]
-  }
-
-  rtc_source_set("rtc_post_message_with_functor_unittests") {
-    testonly = true
-
-    sources = [
-      "post_message_with_functor_unittest.cc",
-    ]
-    deps = [
-      ":checks",
-      ":gunit_helpers",
-      ":rtc_base",
-      ":rtc_post_message_with_functor",
       "../test:test_support",
     ]
   }

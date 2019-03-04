@@ -16,10 +16,13 @@
 
 #include "pc/test/frame_generator_capturer_video_track_source.h"
 #include "rtc_base/task_queue.h"
+#include "rtc_base/task_utils/repeating_task.h"
 #include "rtc_base/thread.h"
+#include "rtc_base/thread_annotations.h"
 #include "system_wrappers/include/clock.h"
 #include "test/pc/e2e/analyzer/video/single_process_encoded_image_data_injector.h"
 #include "test/pc/e2e/analyzer/video/video_quality_analyzer_injection_helper.h"
+#include "test/pc/e2e/api/audio_quality_analyzer_interface.h"
 #include "test/pc/e2e/api/peerconnection_quality_test_fixture.h"
 #include "test/pc/e2e/test_peer.h"
 #include "test/testsupport/video_frame_writer.h"
@@ -39,6 +42,7 @@ class PeerConnectionE2EQualityTest
   using VideoConfig = PeerConnectionE2EQualityTestFixture::VideoConfig;
 
   PeerConnectionE2EQualityTest(
+      std::string test_case_name,
       std::unique_ptr<AudioQualityAnalyzerInterface> audio_quality_analyzer,
       std::unique_ptr<VideoQualityAnalyzerInterface> video_quality_analyzer);
 
@@ -51,9 +55,11 @@ class PeerConnectionE2EQualityTest
            RunParams run_params) override;
 
  private:
-  // Sets video stream labels that are not specified in VideoConfigs to unique
-  // generated values.
-  void SetMissedVideoStreamLabels(std::vector<Params*> params);
+  // Set missing params to default values if it is required:
+  //  * Generate video stream labels if some of them missed
+  //  * Generate audio stream labels if some of them missed
+  //  * Set video source generation mode if it is not specified
+  void SetDefaultValuesForMissingParams(std::vector<Params*> params);
   // Validate peer's parameters, also ensure uniqueness of all video stream
   // labels.
   void ValidateParams(std::vector<Params*> params);
@@ -63,12 +69,12 @@ class PeerConnectionE2EQualityTest
   void SetupCallOnSignalingThread();
   void TearDownCallOnSignalingThread();
   std::vector<rtc::scoped_refptr<FrameGeneratorCapturerVideoTrackSource>>
-  AddMedia(TestPeer* peer);
+  MaybeAddMedia(TestPeer* peer);
   std::vector<rtc::scoped_refptr<FrameGeneratorCapturerVideoTrackSource>>
-  AddVideo(TestPeer* peer);
+  MaybeAddVideo(TestPeer* peer);
   std::unique_ptr<FrameGenerator> CreateFrameGenerator(
       const VideoConfig& video_config);
-  void AddAudio(TestPeer* peer);
+  void MaybeAddAudio(TestPeer* peer);
   void SetupCall();
   void StartVideo(
       const std::vector<
@@ -79,10 +85,12 @@ class PeerConnectionE2EQualityTest
       const VideoConfig& config);
 
   Clock* const clock_;
+  std::string test_case_name_;
   std::unique_ptr<VideoQualityAnalyzerInjectionHelper>
       video_quality_analyzer_injection_helper_;
   std::unique_ptr<SingleProcessEncodedImageDataInjector>
       encoded_image_id_controller_;
+  std::unique_ptr<AudioQualityAnalyzerInterface> audio_quality_analyzer_;
 
   std::unique_ptr<TestPeer> alice_;
   std::unique_ptr<TestPeer> bob_;
@@ -95,6 +103,7 @@ class PeerConnectionE2EQualityTest
   std::vector<std::unique_ptr<rtc::VideoSinkInterface<VideoFrame>>>
       output_video_sinks_;
 
+  RepeatingTaskHandle stats_polling_task_ RTC_GUARDED_BY(&task_queue_);
   // Must be the last field, so it will be deleted first, because tasks
   // in the TaskQueue can access other fields of the instance of this class.
   rtc::TaskQueue task_queue_;

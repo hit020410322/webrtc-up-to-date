@@ -166,6 +166,10 @@ specific_include_rules = {
     "+rtc_base/ref_count.h",
   ],
 
+  "sctp_transport_interface\.h": [
+    "+rtc_base/ref_count.h",
+  ],
+
   "set_remote_description_observer_interface\.h": [
     "+rtc_base/ref_count.h",
   ],
@@ -260,10 +264,6 @@ specific_include_rules = {
 
   "videocodec_test_fixture\.h": [
     "+modules/video_coding/include/video_codec_interface.h"
-  ],
-
-  "video_timing\.h": [
-    "+rtc_base/numerics/safe_conversions.h",
   ],
 
   "video_encoder_config\.h": [

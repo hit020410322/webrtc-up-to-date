@@ -59,11 +59,13 @@ RtpTransportControllerSend::RtpTransportControllerSend(
     Clock* clock,
     webrtc::RtcEventLog* event_log,
     NetworkControllerFactoryInterface* controller_factory,
-    const BitrateConstraints& bitrate_config)
+    const BitrateConstraints& bitrate_config,
+    std::unique_ptr<ProcessThread> process_thread,
+    TaskQueueFactory* task_queue_factory)
     : clock_(clock),
       pacer_(clock, &packet_router_, event_log),
       bitrate_configurator_(bitrate_config),
-      process_thread_(ProcessThread::Create("SendControllerThread")),
+      process_thread_(std::move(process_thread)),
       observer_(nullptr),
       controller_factory_override_(controller_factory),
       controller_factory_fallback_(
@@ -79,7 +81,9 @@ RtpTransportControllerSend::RtpTransportControllerSend(
       transport_overhead_bytes_per_packet_(0),
       network_available_(false),
       retransmission_rate_limiter_(clock, kRetransmitWindowSizeMs),
-      task_queue_("rtp_send_controller") {
+      task_queue_(task_queue_factory->CreateTaskQueue(
+          "rtp_send_controller",
+          TaskQueueFactory::Priority::NORMAL)) {
   initial_config_.constraints = ConvertConstraints(bitrate_config, clock_);
   RTC_DCHECK(bitrate_config.start_bitrate_bps > 0);
 
@@ -156,10 +160,6 @@ RtpPacketSender* RtpTransportControllerSend::packet_sender() {
   return &pacer_;
 }
 
-const RtpKeepAliveConfig& RtpTransportControllerSend::keepalive_config() const {
-  return keepalive_;
-}
-
 void RtpTransportControllerSend::SetAllocatedSendBitrateLimits(
     int min_send_bitrate_bps,
     int max_padding_bitrate_bps,
@@ -171,11 +171,6 @@ void RtpTransportControllerSend::SetAllocatedSendBitrateLimits(
       DataRate::bps(max_total_bitrate_bps);
   UpdateStreamsConfig();
 }
-
-void RtpTransportControllerSend::SetKeepAliveConfig(
-    const RtpKeepAliveConfig& config) {
-  keepalive_ = config;
-}
 void RtpTransportControllerSend::SetPacingFactor(float pacing_factor) {
   RTC_DCHECK_RUN_ON(&task_queue_);
   streams_config_.pacing_factor = pacing_factor;
@@ -183,9 +178,6 @@ void RtpTransportControllerSend::SetPacingFactor(float pacing_factor) {
 }
 void RtpTransportControllerSend::SetQueueTimeLimit(int limit_ms) {
   pacer_.SetQueueTimeLimit(limit_ms);
-}
-CallStatsObserver* RtpTransportControllerSend::GetCallStatsObserver() {
-  return this;
 }
 void RtpTransportControllerSend::RegisterPacketFeedbackObserver(
     PacketFeedbackObserver* observer) {
@@ -440,20 +432,6 @@ void RtpTransportControllerSend::OnTransportFeedback(
   }
   pacer_.UpdateOutstandingData(
       transport_feedback_adapter_.GetOutstandingData().bytes());
-}
-
-void RtpTransportControllerSend::OnRttUpdate(int64_t avg_rtt_ms,
-                                             int64_t max_rtt_ms) {
-  int64_t now_ms = clock_->TimeInMilliseconds();
-  RoundTripTimeUpdate report;
-  report.receive_time = Timestamp::ms(now_ms);
-  report.round_trip_time = TimeDelta::ms(avg_rtt_ms);
-  report.smoothed = true;
-  task_queue_.PostTask([this, report]() {
-    RTC_DCHECK_RUN_ON(&task_queue_);
-    if (controller_)
-      PostUpdates(controller_->OnRoundTripTimeUpdate(report));
-  });
 }
 
 void RtpTransportControllerSend::MaybeCreateControllers() {

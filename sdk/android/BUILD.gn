@@ -961,7 +961,9 @@ if (is_android) {
     ]
 
     deps = [
-      "../../rtc_base",
+      "../../rtc_base:criticalsection",
+      "../../rtc_base:logging",
+      "../../rtc_base:stringutils",
     ]
   }
 
@@ -1504,11 +1506,6 @@ if (is_android) {
       "../../resources/audio_device/audio_short44.pcm",
       "../../resources/audio_device/audio_short48.pcm",
     ]
-
-    if (is_clang) {
-      # Suppress warnings from the Chromium Clang plugin (bugs.webrtc.org/163).
-      suppressed_configs += [ "//build/config/clang:find_bad_constructs" ]
-    }
 
     deps = [
       ":audio_device_module_base",

@@ -133,8 +133,15 @@ VideoQualityAnalyzerInjectionHelper::CreateVideoSink(
   return absl::make_unique<AnalyzingVideoSink>(analyzer_.get(), writer);
 }
 
-void VideoQualityAnalyzerInjectionHelper::Start(int max_threads_count) {
-  analyzer_->Start(max_threads_count);
+void VideoQualityAnalyzerInjectionHelper::Start(std::string test_case_name,
+                                                int max_threads_count) {
+  analyzer_->Start(std::move(test_case_name), max_threads_count);
+}
+
+void VideoQualityAnalyzerInjectionHelper::OnStatsReports(
+    absl::string_view pc_label,
+    const StatsReports& stats_reports) {
+  analyzer_->OnStatsReports(pc_label, stats_reports);
 }
 
 void VideoQualityAnalyzerInjectionHelper::Stop() {

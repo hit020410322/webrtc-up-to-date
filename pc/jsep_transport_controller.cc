@@ -596,7 +596,7 @@ RTCError JsepTransportController::ApplyDescription_n(
         (IsBundled(content_info.name) && content_info.name != *bundled_mid())) {
       continue;
     }
-    error = MaybeCreateJsepTransport(local, content_info);
+    error = MaybeCreateJsepTransport(local, content_info, *description);
     if (!error.ok()) {
       return error;
     }
@@ -818,8 +818,8 @@ bool JsepTransportController::SetTransportForMid(
 
   mid_to_transport_[mid] = jsep_transport;
   return config_.transport_observer->OnTransportChanged(
-      mid, jsep_transport->rtp_transport(),
-      jsep_transport->rtp_dtls_transport(), jsep_transport->media_transport());
+      mid, jsep_transport->rtp_transport(), jsep_transport->RtpDtlsTransport(),
+      jsep_transport->media_transport());
 }
 
 void JsepTransportController::RemoveTransportForMid(const std::string& mid) {
@@ -958,8 +958,8 @@ cricket::JsepTransport* JsepTransportController::GetJsepTransportByName(
 std::unique_ptr<webrtc::MediaTransportInterface>
 JsepTransportController::MaybeCreateMediaTransport(
     const cricket::ContentInfo& content_info,
-    bool local,
-    cricket::IceTransportInternal* ice_transport) {
+    const cricket::SessionDescription& description,
+    bool local) {
   if (!is_media_transport_factory_enabled_) {
     return nullptr;
   }
@@ -972,79 +972,55 @@ JsepTransportController::MaybeCreateMediaTransport(
     return nullptr;
   }
 
-  absl::optional<cricket::CryptoParams> selected_crypto_for_media_transport;
-  if (content_info.media_description() &&
-      !content_info.media_description()->cryptos().empty()) {
-    // Order of cryptos is deterministic (rfc4568, 5.1.1), so we just select the
-    // first one (in fact the first one should be the most preferred one.) We
-    // ignore the HMAC size, as media transport crypto settings currently don't
-    // expose HMAC size, nor crypto protocol for that matter.
-    selected_crypto_for_media_transport =
-        content_info.media_description()->cryptos()[0];
+  // Caller (offerer) media transport.
+  if (local) {
+    if (offer_media_transport_) {
+      RTC_LOG(LS_INFO) << "Offered media transport has now been activated.";
+      return std::move(offer_media_transport_);
+    } else {
+      RTC_LOG(LS_INFO)
+          << "Not returning media transport. Either SDES wasn't enabled, or "
+             "media transport didn't return an offer earlier.";
+      // Offer wasn't generated. Either because media transport didn't want it,
+      // or because SDES wasn't enabled.
+      return nullptr;
+    }
   }
 
-  if (!selected_crypto_for_media_transport.has_value()) {
-    RTC_LOG(LS_WARNING) << "a=cryto line was not found in the offer. Most "
-                           "likely you did not enable SDES. "
-                           "Make sure to pass config.enable_dtls_srtp=false "
-                           "to RTCConfiguration. "
-                           "Cannot continue with media transport. Falling "
-                           "back to RTP. is_local="
-                        << local;
-
-    // Remove media_transport_factory from config, because we don't want to
-    // use it on the subsequent call (for the other side of the offer).
-    is_media_transport_factory_enabled_ = false;
+  // Remote offer. If no x-mt lines, do not create media transport.
+  if (description.MediaTransportSettings().empty()) {
     return nullptr;
   }
 
-  // Note that we ignore here lifetime and length.
-  // In fact we take those bits (inline, lifetime and length) and keep it as
-  // part of key derivation.
-  //
-  // Technically, we are also not following rfc4568, which requires us to
-  // send and answer with the key that we chose. In practice, for media
-  // transport, the current approach should be sufficient (we take the key
-  // that sender offered, and caller assumes we will use it. We are not
-  // signaling back that we indeed used it.)
-  std::unique_ptr<rtc::KeyDerivation> key_derivation =
-      rtc::KeyDerivation::Create(rtc::KeyDerivationAlgorithm::HKDF_SHA256);
-  const std::string label = "MediaTransportLabel";
-  constexpr int kDerivedKeyByteSize = 32;
+  // When bundle is enabled, two JsepTransports are created, and then
+  // the second transport is destroyed (right away).
+  // For media transport, we don't want to create the second
+  // media transport in the first place.
+  RTC_LOG(LS_INFO) << "Returning new, client media transport.";
 
-  int key_len, salt_len;
-  if (!rtc::GetSrtpKeyAndSaltLengths(
-          rtc::SrtpCryptoSuiteFromName(
-              selected_crypto_for_media_transport.value().cipher_suite),
-          &key_len, &salt_len)) {
-    RTC_CHECK(false) << "Cannot set up secure media transport";
-  }
-  rtc::ZeroOnFreeBuffer<uint8_t> raw_key(key_len + salt_len);
-
-  cricket::SrtpFilter::ParseKeyParams(
-      selected_crypto_for_media_transport.value().key_params, raw_key.data(),
-      raw_key.size());
-  absl::optional<rtc::ZeroOnFreeBuffer<uint8_t>> key =
-      key_derivation->DeriveKey(
-          raw_key,
-          /*salt=*/nullptr,
-          rtc::ArrayView<const uint8_t>(
-              reinterpret_cast<const uint8_t*>(label.data()), label.size()),
-          kDerivedKeyByteSize);
-
-  // We want to crash the app if we don't have a key, and not silently fall
-  // back to the unsecure communication.
-  RTC_CHECK(key.has_value());
+  RTC_DCHECK(!local)
+      << "If media transport is used, you must call "
+         "GenerateOrGetLastMediaTransportOffer before SetLocalDescription. You "
+         "also "
+         "must use kRtcpMuxPolicyRequire and kBundlePolicyMaxBundle with media "
+         "transport.";
   MediaTransportSettings settings;
   settings.is_caller = local;
-  settings.pre_shared_key = std::string(
-      reinterpret_cast<const char*>(key.value().data()), key.value().size());
   if (config_.use_media_transport_for_media) {
     settings.event_log = config_.event_log;
   }
+
+  // Assume there is only one media transport (or if more, use the first one).
+  if (!local && !description.MediaTransportSettings().empty() &&
+      config_.media_transport_factory->GetTransportName() ==
+          description.MediaTransportSettings()[0].transport_name) {
+    settings.remote_transport_parameters =
+        description.MediaTransportSettings()[0].transport_setting;
+  }
+
   auto media_transport_result =
-      config_.media_transport_factory->CreateMediaTransport(
-          ice_transport, network_thread_, settings);
+      config_.media_transport_factory->CreateMediaTransport(network_thread_,
+                                                            settings);
 
   // TODO(sukhanov): Proper error handling.
   RTC_CHECK(media_transport_result.ok());
@@ -1054,7 +1030,8 @@ JsepTransportController::MaybeCreateMediaTransport(
 
 RTCError JsepTransportController::MaybeCreateJsepTransport(
     bool local,
-    const cricket::ContentInfo& content_info) {
+    const cricket::ContentInfo& content_info,
+    const cricket::SessionDescription& description) {
   RTC_DCHECK(network_thread_->IsCurrent());
   cricket::JsepTransport* transport = GetJsepTransportByName(content_info.name);
   if (transport) {
@@ -1073,7 +1050,11 @@ RTCError JsepTransportController::MaybeCreateJsepTransport(
       CreateIceTransport(content_info.name, /*rtcp=*/false);
 
   std::unique_ptr<MediaTransportInterface> media_transport =
-      MaybeCreateMediaTransport(content_info, local, ice.get());
+      MaybeCreateMediaTransport(content_info, description, local);
+  if (media_transport) {
+    media_transport_created_once_ = true;
+    media_transport->Connect(ice.get());
+  }
 
   std::unique_ptr<cricket::DtlsTransportInternal> rtp_dtls_transport =
       CreateDtlsTransport(std::move(ice));
@@ -1512,6 +1493,60 @@ void JsepTransportController::UpdateAggregateStates_n() {
 void JsepTransportController::OnDtlsHandshakeError(
     rtc::SSLHandshakeError error) {
   SignalDtlsHandshakeError(error);
+}
+
+absl::optional<cricket::SessionDescription::MediaTransportSetting>
+JsepTransportController::GenerateOrGetLastMediaTransportOffer() {
+  if (media_transport_created_once_) {
+    RTC_LOG(LS_INFO) << "Not regenerating media transport for the new offer in "
+                        "existing session.";
+    return media_transport_offer_settings_;
+  }
+
+  RTC_LOG(LS_INFO) << "Generating media transport offer!";
+  // Check that media transport is supposed to be used.
+  if (config_.use_media_transport_for_media ||
+      config_.use_media_transport_for_data_channels) {
+    RTC_DCHECK(config_.media_transport_factory != nullptr);
+    // ICE is not available when media transport is created. It will only be
+    // available in 'Connect'. This may be a potential server config, if we
+    // decide to use this peer connection as a caller, not as a callee.
+    webrtc::MediaTransportSettings settings;
+    settings.is_caller = true;
+    settings.pre_shared_key = rtc::CreateRandomString(32);
+    settings.event_log = config_.event_log;
+    auto media_transport_or_error =
+        config_.media_transport_factory->CreateMediaTransport(network_thread_,
+                                                              settings);
+
+    if (media_transport_or_error.ok()) {
+      offer_media_transport_ = std::move(media_transport_or_error.value());
+    } else {
+      RTC_LOG(LS_INFO) << "Unable to create media transport, error="
+                       << media_transport_or_error.error().message();
+    }
+  }
+
+  if (!offer_media_transport_) {
+    RTC_LOG(LS_INFO) << "Media transport doesn't exist";
+    return absl::nullopt;
+  }
+
+  absl::optional<std::string> transport_parameters =
+      offer_media_transport_->GetTransportParametersOffer();
+  if (!transport_parameters) {
+    RTC_LOG(LS_INFO) << "Media transport didn't generate the offer";
+    // Media transport didn't generate the offer, and is not supposed to be
+    // used. Destroy the temporary media transport.
+    offer_media_transport_ = nullptr;
+    return absl::nullopt;
+  }
+
+  cricket::SessionDescription::MediaTransportSetting setting;
+  setting.transport_name = config_.media_transport_factory->GetTransportName();
+  setting.transport_setting = *transport_parameters;
+  media_transport_offer_settings_ = setting;
+  return setting;
 }
 
 }  // namespace webrtc

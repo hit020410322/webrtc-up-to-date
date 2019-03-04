@@ -113,6 +113,8 @@ rtc_static_library("libjingle_peerconnection_api") {
     "rtp_sender_interface.h",
     "rtp_transceiver_interface.cc",
     "rtp_transceiver_interface.h",
+    "sctp_transport_interface.cc",
+    "sctp_transport_interface.h",
     "set_remote_description_observer_interface.h",
     "stats_types.cc",
     "stats_types.h",
@@ -184,10 +186,6 @@ rtc_source_set("video_quality_test_fixture_api") {
     "../test:video_test_common",
     "video_codecs:video_codecs_api",
   ]
-  if (!build_with_chromium && is_clang) {
-    # Suppress warnings from the Chromium Clang plugin (bugs.webrtc.org/163).
-    suppressed_configs += [ "//build/config/clang:find_bad_constructs" ]
-  }
 }
 
 rtc_source_set("test_dependency_factory") {
@@ -203,10 +201,6 @@ rtc_source_set("test_dependency_factory") {
     "../rtc_base:thread_checker",
     "//third_party/abseil-cpp/absl/memory",
   ]
-  if (!build_with_chromium && is_clang) {
-    # Suppress warnings from the Chromium Clang plugin (bugs.webrtc.org/163).
-    suppressed_configs += [ "//build/config/clang:find_bad_constructs" ]
-  }
 }
 
 if (rtc_include_tests) {
@@ -224,10 +218,6 @@ if (rtc_include_tests) {
       "../video:video_quality_test",
       "//third_party/abseil-cpp/absl/memory",
     ]
-    if (!build_with_chromium && is_clang) {
-      # Suppress warnings from the Chromium Clang plugin (bugs.webrtc.org/163).
-      suppressed_configs += [ "//build/config/clang:find_bad_constructs" ]
-    }
   }
 }
 
@@ -427,10 +417,6 @@ if (rtc_include_tests) {
       "video_codecs:video_codecs_api",
       "//third_party/abseil-cpp/absl/memory",
     ]
-    if (!build_with_chromium && is_clang) {
-      # Suppress warnings from the Chromium Clang plugin (bugs.webrtc.org/163).
-      suppressed_configs += [ "//build/config/clang:find_bad_constructs" ]
-    }
   }
 
   rtc_source_set("videocodec_test_fixture_api") {
@@ -464,10 +450,6 @@ if (rtc_include_tests) {
       "video_codecs:video_codecs_api",
       "//third_party/abseil-cpp/absl/memory",
     ]
-    if (!build_with_chromium && is_clang) {
-      # Suppress warnings from the Chromium Clang plugin (bugs.webrtc.org/163).
-      suppressed_configs += [ "//build/config/clang:find_bad_constructs" ]
-    }
   }
 
   rtc_source_set("mock_audio_mixer") {
@@ -668,11 +650,6 @@ if (rtc_include_tests) {
       "test/loopback_media_transport_unittest.cc",
     ]
 
-    if (!build_with_chromium && is_clang) {
-      # Suppress warnings from the Chromium Clang plugin (bugs.webrtc.org/163).
-      suppressed_configs += [ "//build/config/clang:find_bad_constructs" ]
-    }
-
     deps = [
       ":array_view",
       ":libjingle_peerconnection_api",
@@ -681,6 +658,7 @@ if (rtc_include_tests) {
       "../rtc_base:gunit_helpers",
       "../rtc_base:rtc_base_approved",
       "../test:test_support",
+      "task_queue:task_queue_default_factory_unittests",
       "units:units_unittests",
     ]
   }

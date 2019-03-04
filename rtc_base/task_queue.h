@@ -17,9 +17,9 @@
 #include <utility>
 
 #include "absl/memory/memory.h"
-#include "api/scoped_refptr.h"
 #include "api/task_queue/queued_task.h"
-#include "api/task_queue/task_queue_priority.h"
+#include "api/task_queue/task_queue_base.h"
+#include "api/task_queue/task_queue_factory.h"
 #include "rtc_base/constructor_magic.h"
 #include "rtc_base/system/rtc_export.h"
 #include "rtc_base/thread_annotations.h"
@@ -143,9 +143,10 @@ class RTC_LOCKABLE RTC_EXPORT TaskQueue {
  public:
   // TaskQueue priority levels. On some platforms these will map to thread
   // priorities, on others such as Mac and iOS, GCD queue priorities.
-  using Priority = ::webrtc::TaskQueuePriority;
-  class Impl;
+  using Priority = ::webrtc::TaskQueueFactory::Priority;
 
+  explicit TaskQueue(std::unique_ptr<webrtc::TaskQueueBase,
+                                     webrtc::TaskQueueDeleter> task_queue);
   explicit TaskQueue(const char* queue_name,
                      Priority priority = Priority::NORMAL);
   ~TaskQueue();
@@ -154,6 +155,9 @@ class RTC_LOCKABLE RTC_EXPORT TaskQueue {
 
   // Used for DCHECKing the current queue.
   bool IsCurrent() const;
+
+  // Returns non-owning pointer to the task queue implementation.
+  webrtc::TaskQueueBase* Get() { return impl_; }
 
   // TODO(tommi): For better debuggability, implement RTC_FROM_HERE.
 
@@ -188,15 +192,7 @@ class RTC_LOCKABLE RTC_EXPORT TaskQueue {
   }
 
  private:
-  // TODO(danilchap): Remove when external implementaions of TaskQueue remove
-  // these two functions.
-  void PostTaskAndReply(std::unique_ptr<QueuedTask> task,
-                        std::unique_ptr<QueuedTask> reply,
-                        TaskQueue* reply_queue);
-  void PostTaskAndReply(std::unique_ptr<QueuedTask> task,
-                        std::unique_ptr<QueuedTask> reply);
-
-  const scoped_refptr<Impl> impl_;
+  webrtc::TaskQueueBase* const impl_;
 
   RTC_DISALLOW_COPY_AND_ASSIGN(TaskQueue);
 };

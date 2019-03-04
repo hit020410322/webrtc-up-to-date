@@ -204,16 +204,13 @@ rtc_source_set("video_stream_encoder_create") {
     "video_stream_encoder_create.h",
   ]
 
-  if (!build_with_chromium && is_clang) {
-    # Suppress warnings from the Chromium Clang plugin (bugs.webrtc.org/163).
-    suppressed_configs += [ "//build/config/clang:find_bad_constructs" ]
-  }
-
   deps = [
     ":video_frame",
     ":video_stream_encoder",
     "../../api:scoped_refptr",
     "../../video:video_stream_encoder_impl",
+    "../task_queue",
+    "../task_queue:global_task_queue_factory",
     "../video_codecs:video_codecs_api",
     "//third_party/abseil-cpp/absl/memory",
   ]

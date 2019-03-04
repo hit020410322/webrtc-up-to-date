@@ -37,22 +37,31 @@ RTCErrorOr<std::unique_ptr<MediaTransportInterface>>
 MediaTransportFactory::CreateMediaTransport(
     rtc::PacketTransportInternal* packet_transport,
     rtc::Thread* network_thread,
-    bool is_caller) {
-  MediaTransportSettings settings;
-  settings.is_caller = is_caller;
-  return CreateMediaTransport(packet_transport, network_thread, settings);
+    const MediaTransportSettings& settings) {
+  return std::unique_ptr<MediaTransportInterface>(nullptr);
 }
 
 RTCErrorOr<std::unique_ptr<MediaTransportInterface>>
 MediaTransportFactory::CreateMediaTransport(
-    rtc::PacketTransportInternal* packet_transport,
     rtc::Thread* network_thread,
     const MediaTransportSettings& settings) {
   return std::unique_ptr<MediaTransportInterface>(nullptr);
 }
 
+std::string MediaTransportFactory::GetTransportName() const {
+  return "";
+}
+
 MediaTransportInterface::MediaTransportInterface() = default;
 MediaTransportInterface::~MediaTransportInterface() = default;
+
+absl::optional<std::string>
+MediaTransportInterface::GetTransportParametersOffer() const {
+  return absl::nullopt;
+}
+
+void MediaTransportInterface::Connect(
+    rtc::PacketTransportInternal* packet_transport) {}
 
 void MediaTransportInterface::SetKeyFrameRequestCallback(
     MediaTransportKeyFrameRequestCallback* callback) {}
@@ -87,12 +96,5 @@ size_t MediaTransportInterface::GetAudioPacketOverhead() const {
 
 void MediaTransportInterface::SetAllocatedBitrateLimits(
     const MediaTransportAllocatedBitrateLimits& limits) {}
-
-// TODO(mellem):  Delete when all implementations support it.
-RTCError MediaTransportInterface::OpenChannel(int channel_id) {
-  // NB: This must return OK to avoid breaking existing implementations, which
-  // do not require calling OpenChannel.
-  return RTCError::OK();
-}
 
 }  // namespace webrtc

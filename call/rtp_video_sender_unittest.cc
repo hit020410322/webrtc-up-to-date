@@ -12,6 +12,7 @@
 #include <string>
 
 #include "absl/memory/memory.h"
+#include "api/task_queue/global_task_queue_factory.h"
 #include "call/rtp_transport_controller_send.h"
 #include "call/rtp_video_sender.h"
 #include "modules/video_coding/fec_controller_default.h"
@@ -82,7 +83,12 @@ class RtpVideoSenderTestFixture {
       : clock_(0),
         config_(&transport_),
         send_delay_stats_(&clock_),
-        transport_controller_(&clock_, &event_log_, nullptr, bitrate_config_),
+        transport_controller_(&clock_,
+                              &event_log_,
+                              nullptr,
+                              bitrate_config_,
+                              ProcessThread::Create("PacerThread"),
+                              &GlobalTaskQueueFactory()),
         process_thread_(ProcessThread::Create("test_thread")),
         call_stats_(&clock_, process_thread_.get()),
         stats_proxy_(&clock_,
@@ -176,7 +182,6 @@ TEST(RtpVideoSenderTest, SendSimulcastSetActive) {
   RtpVideoSenderTestFixture test({kSsrc1, kSsrc2}, kPayloadType, {});
 
   CodecSpecificInfo codec_info;
-  memset(&codec_info, 0, sizeof(CodecSpecificInfo));
   codec_info.codecType = kVideoCodecVP8;
 
   test.router()->SetActive(true);
@@ -223,7 +228,6 @@ TEST(RtpVideoSenderTest, SendSimulcastSetActiveModules) {
 
   RtpVideoSenderTestFixture test({kSsrc1, kSsrc2}, kPayloadType, {});
   CodecSpecificInfo codec_info;
-  memset(&codec_info, 0, sizeof(CodecSpecificInfo));
   codec_info.codecType = kVideoCodecVP8;
 
   // Only setting one stream to active will still set the payload router to

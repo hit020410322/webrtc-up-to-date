@@ -7,7 +7,7 @@
 # be found in the AUTHORS file in the root of the source tree.
 
 import("../../webrtc.gni")
-if (!build_with_mozilla) {
+if (rtc_enable_protobuf) {
   import("//third_party/protobuf/proto_library.gni")
 }
 
@@ -505,11 +505,6 @@ if (rtc_include_tests) {
         "test/test_utils.h",
         "voice_detection_unittest.cc",
       ]
-    }
-
-    if ((!build_with_chromium || is_win) && is_clang) {
-      # Suppress warnings from the Chromium Clang plugin (bugs.webrtc.org/163).
-      suppressed_configs += [ "//build/config/clang:find_bad_constructs" ]
     }
   }
 

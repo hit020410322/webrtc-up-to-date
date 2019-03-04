@@ -22,7 +22,6 @@
 #include "pc/test/mock_peer_connection_observers.h"
 #include "rtc_base/network.h"
 #include "rtc_base/thread.h"
-#include "test/pc/e2e/analyzer/video/encoded_image_data_injector.h"
 #include "test/pc/e2e/analyzer/video/video_quality_analyzer_injection_helper.h"
 #include "test/pc/e2e/api/peerconnection_quality_test_fixture.h"
 
@@ -68,14 +67,9 @@ class TestPeer final : public PeerConnectionWrapper {
   TestPeer(rtc::scoped_refptr<PeerConnectionFactoryInterface> pc_factory,
            rtc::scoped_refptr<PeerConnectionInterface> pc,
            std::unique_ptr<MockPeerConnectionObserver> observer,
-           std::unique_ptr<Params> params,
-           std::unique_ptr<rtc::NetworkManager> network_manager);
+           std::unique_ptr<Params> params);
 
   std::unique_ptr<Params> params_;
-  // Test peer will take ownership of network manager and keep it during the
-  // call. Network manager will be deleted before peer connection, but
-  // connection will be closed before destruction, so it should be ok.
-  std::unique_ptr<rtc::NetworkManager> network_manager_;
 };
 
 }  // namespace test

@@ -18,13 +18,17 @@
 #include "api/peer_connection_interface.h"
 #include "api/scoped_refptr.h"
 #include "api/units/time_delta.h"
+#include "logging/rtc_event_log/output/rtc_event_log_output_file.h"
+#include "logging/rtc_event_log/rtc_event_log.h"
 #include "pc/test/mock_peer_connection_observers.h"
 #include "rtc_base/bind.h"
 #include "rtc_base/gunit.h"
 #include "rtc_base/numerics/safe_conversions.h"
 #include "system_wrappers/include/cpu_info.h"
-#include "test/pc/e2e/analyzer/video/example_video_quality_analyzer.h"
+#include "test/pc/e2e/analyzer/audio/default_audio_quality_analyzer.h"
+#include "test/pc/e2e/analyzer/video/default_video_quality_analyzer.h"
 #include "test/pc/e2e/api/video_quality_analyzer_interface.h"
+#include "test/pc/e2e/stats_poller.h"
 #include "test/testsupport/file_utils.h"
 
 namespace webrtc {
@@ -41,6 +45,9 @@ constexpr int kPeerConnectionUsedThreads = 7;
 // connection stats polling.
 constexpr int kFrameworkUsedThreads = 2;
 constexpr int kMaxVideoAnalyzerThreads = 8;
+
+constexpr TimeDelta kStatsUpdateInterval = TimeDelta::Seconds<1>();
+constexpr TimeDelta kStatsPollingStopTimeout = TimeDelta::Seconds<1>();
 
 std::string VideoConfigSourcePresenceToString(const VideoConfig& video_config) {
   char buf[1024];
@@ -91,14 +98,17 @@ class FixturePeerConnectionObserver : public MockPeerConnectionObserver {
 }  // namespace
 
 PeerConnectionE2EQualityTest::PeerConnectionE2EQualityTest(
+    std::string test_case_name,
     std::unique_ptr<AudioQualityAnalyzerInterface> audio_quality_analyzer,
     std::unique_ptr<VideoQualityAnalyzerInterface> video_quality_analyzer)
-    : clock_(Clock::GetRealTimeClock()), task_queue_("pc_e2e_quality_test") {
+    : clock_(Clock::GetRealTimeClock()),
+      test_case_name_(std::move(test_case_name)),
+      task_queue_("pc_e2e_quality_test") {
   // Create default video quality analyzer. We will always create an analyzer,
   // even if there are no video streams, because it will be installed into video
   // encoder/decoder factories.
   if (video_quality_analyzer == nullptr) {
-    video_quality_analyzer = absl::make_unique<ExampleVideoQualityAnalyzer>();
+    video_quality_analyzer = absl::make_unique<DefaultVideoQualityAnalyzer>();
   }
   encoded_image_id_controller_ =
       absl::make_unique<SingleProcessEncodedImageDataInjector>();
@@ -106,6 +116,11 @@ PeerConnectionE2EQualityTest::PeerConnectionE2EQualityTest(
       absl::make_unique<VideoQualityAnalyzerInjectionHelper>(
           std::move(video_quality_analyzer), encoded_image_id_controller_.get(),
           encoded_image_id_controller_.get());
+
+  if (audio_quality_analyzer == nullptr) {
+    audio_quality_analyzer = absl::make_unique<DefaultAudioQualityAnalyzer>();
+  }
+  audio_quality_analyzer_.swap(audio_quality_analyzer);
 }
 
 void PeerConnectionE2EQualityTest::Run(
@@ -119,7 +134,7 @@ void PeerConnectionE2EQualityTest::Run(
   RTC_CHECK(bob_components);
   RTC_CHECK(bob_params);
 
-  SetMissedVideoStreamLabels({alice_params.get(), bob_params.get()});
+  SetDefaultValuesForMissingParams({alice_params.get(), bob_params.get()});
   ValidateParams({alice_params.get(), bob_params.get()});
 
   // Print test summary
@@ -183,16 +198,54 @@ void PeerConnectionE2EQualityTest::Run(
       std::min(video_analyzer_threads, kMaxVideoAnalyzerThreads);
   RTC_LOG(INFO) << "video_analyzer_threads=" << video_analyzer_threads;
 
-  video_quality_analyzer_injection_helper_->Start(video_analyzer_threads);
+  video_quality_analyzer_injection_helper_->Start(test_case_name_,
+                                                  video_analyzer_threads);
+  audio_quality_analyzer_->Start(test_case_name_);
+
+  // Start RTCEventLog recording if requested.
+  if (alice_->params()->rtc_event_log_path) {
+    auto alice_rtc_event_log = absl::make_unique<webrtc::RtcEventLogOutputFile>(
+        alice_->params()->rtc_event_log_path.value());
+    alice_->pc()->StartRtcEventLog(std::move(alice_rtc_event_log),
+                                   webrtc::RtcEventLog::kImmediateOutput);
+  }
+  if (bob_->params()->rtc_event_log_path) {
+    auto bob_rtc_event_log = absl::make_unique<webrtc::RtcEventLogOutputFile>(
+        bob_->params()->rtc_event_log_path.value());
+    bob_->pc()->StartRtcEventLog(std::move(bob_rtc_event_log),
+                                 webrtc::RtcEventLog::kImmediateOutput);
+  }
+
   signaling_thread->Invoke<void>(
       RTC_FROM_HERE,
       rtc::Bind(&PeerConnectionE2EQualityTest::SetupCallOnSignalingThread,
                 this));
 
-  // TODO(bugs.webrtc.org/10138): Implement stats collection and send stats
-  // reports to analyzers every 1 second.
+  StatsPoller stats_poller({audio_quality_analyzer_.get(),
+                            video_quality_analyzer_injection_helper_.get()},
+                           {{"alice", alice_.get()}, {"bob", bob_.get()}});
+
+  task_queue_.PostTask([&stats_poller, this]() {
+    RTC_DCHECK_RUN_ON(&task_queue_);
+    stats_polling_task_ = RepeatingTaskHandle::Start([this, &stats_poller]() {
+      RTC_DCHECK_RUN_ON(&task_queue_);
+      stats_poller.PollStatsAndNotifyObservers();
+      return kStatsUpdateInterval;
+    });
+  });
+
   rtc::Event done;
-  done.Wait(rtc::checked_cast<int>(run_params.run_duration.ms()));
+  done.Wait(run_params.run_duration.ms());
+
+  rtc::Event stats_polling_stopped;
+  task_queue_.PostTask([&stats_polling_stopped, this]() {
+    RTC_DCHECK_RUN_ON(&task_queue_);
+    stats_polling_task_.Stop();
+    stats_polling_stopped.Set();
+  });
+  bool no_timeout = stats_polling_stopped.Wait(kStatsPollingStopTimeout.ms());
+  RTC_CHECK(no_timeout) << "Failed to stop Stats polling after "
+                        << kStatsPollingStopTimeout.seconds() << " seconds.";
 
   signaling_thread->Invoke<void>(
       RTC_FROM_HERE,
@@ -212,19 +265,35 @@ void PeerConnectionE2EQualityTest::Run(
   RTC_CHECK(video_writers_.empty());
 }
 
-void PeerConnectionE2EQualityTest::SetMissedVideoStreamLabels(
+void PeerConnectionE2EQualityTest::SetDefaultValuesForMissingParams(
     std::vector<Params*> params) {
-  int counter = 0;
+  int video_counter = 0;
+  int audio_counter = 0;
   std::set<std::string> video_labels;
+  std::set<std::string> audio_labels;
   for (auto* p : params) {
     for (auto& video_config : p->video_configs) {
+      if (!video_config.generator && !video_config.input_file_name &&
+          !video_config.screen_share_config) {
+        video_config.generator = VideoGeneratorType::kDefault;
+      }
       if (!video_config.stream_label) {
         std::string label;
         do {
-          label = "_auto_video_stream_label_" + std::to_string(counter);
-          ++counter;
+          label = "_auto_video_stream_label_" + std::to_string(video_counter);
+          ++video_counter;
         } while (!video_labels.insert(label).second);
         video_config.stream_label = label;
+      }
+    }
+    if (p->audio_config) {
+      if (!p->audio_config->stream_label) {
+        std::string label;
+        do {
+          label = "_auto_audio_stream_label_" + std::to_string(audio_counter);
+          ++audio_counter;
+        } while (!audio_labels.insert(label).second);
+        p->audio_config->stream_label = label;
       }
     }
   }
@@ -232,6 +301,7 @@ void PeerConnectionE2EQualityTest::SetMissedVideoStreamLabels(
 
 void PeerConnectionE2EQualityTest::ValidateParams(std::vector<Params*> params) {
   std::set<std::string> video_labels;
+  std::set<std::string> audio_labels;
   int media_streams_count = 0;
 
   for (Params* p : params) {
@@ -261,6 +331,10 @@ void PeerConnectionE2EQualityTest::ValidateParams(std::vector<Params*> params) {
           << VideoConfigSourcePresenceToString(video_config);
     }
     if (p->audio_config) {
+      bool inserted =
+          audio_labels.insert(p->audio_config->stream_label.value()).second;
+      RTC_CHECK(inserted) << "Duplicate audio_config.stream_label="
+                          << p->audio_config->stream_label.value();
       // Check that if mode input file name specified only if mode is kFile.
       if (p->audio_config.value().mode == AudioConfig::Mode::kGenerated) {
         RTC_CHECK(!p->audio_config.value().input_file_name);
@@ -284,15 +358,16 @@ void PeerConnectionE2EQualityTest::SetupVideoSink(
     return;
   }
 
+  RTC_CHECK_EQ(transceiver->receiver()->stream_ids().size(), 1);
+  std::string stream_label = transceiver->receiver()->stream_ids().front();
   VideoConfig* video_config = nullptr;
   for (auto& config : remote_video_configs) {
-    if (config.stream_label == track->id()) {
+    if (config.stream_label == stream_label) {
       video_config = &config;
       break;
     }
   }
   RTC_CHECK(video_config);
-
   VideoFrameWriter* writer = MaybeCreateVideoWriter(
       video_config->output_dump_file_name, *video_config);
   // It is safe to cast here, because it is checked above that
@@ -305,8 +380,25 @@ void PeerConnectionE2EQualityTest::SetupVideoSink(
 }
 
 void PeerConnectionE2EQualityTest::SetupCallOnSignalingThread() {
-  alice_video_sources_ = AddMedia(alice_.get());
-  bob_video_sources_ = AddMedia(bob_.get());
+  // We need receive-only transceivers for Bob's media stream, so there will
+  // be media section in SDP for that streams in Alice's offer, because it is
+  // forbidden to add new media sections in answer in Unified Plan.
+  RtpTransceiverInit receive_only_transceiver_init;
+  receive_only_transceiver_init.direction = RtpTransceiverDirection::kRecvOnly;
+  if (bob_->params()->audio_config) {
+    // Setup receive audio transceiver if Bob has audio to send. If we'll need
+    // multiple audio streams, then we need transceiver for each Bob's audio
+    // stream.
+    alice_->AddTransceiver(cricket::MediaType::MEDIA_TYPE_AUDIO,
+                           receive_only_transceiver_init);
+  }
+  for (size_t i = 0; i < bob_->params()->video_configs.size(); ++i) {
+    alice_->AddTransceiver(cricket::MediaType::MEDIA_TYPE_VIDEO,
+                           receive_only_transceiver_init);
+  }
+  // Then add media for Alice and Bob
+  alice_video_sources_ = MaybeAddMedia(alice_.get());
+  bob_video_sources_ = MaybeAddMedia(bob_.get());
 
   SetupCall();
 }
@@ -316,15 +408,13 @@ void PeerConnectionE2EQualityTest::TearDownCallOnSignalingThread() {
 }
 
 std::vector<rtc::scoped_refptr<FrameGeneratorCapturerVideoTrackSource>>
-PeerConnectionE2EQualityTest::AddMedia(TestPeer* peer) {
-  if (peer->params()->audio_config) {
-    AddAudio(peer);
-  }
-  return AddVideo(peer);
+PeerConnectionE2EQualityTest::MaybeAddMedia(TestPeer* peer) {
+  MaybeAddAudio(peer);
+  return MaybeAddVideo(peer);
 }
 
 std::vector<rtc::scoped_refptr<FrameGeneratorCapturerVideoTrackSource>>
-PeerConnectionE2EQualityTest::AddVideo(TestPeer* peer) {
+PeerConnectionE2EQualityTest::MaybeAddVideo(TestPeer* peer) {
   // Params here valid because of pre-run validation.
   Params* params = peer->params();
   std::vector<rtc::scoped_refptr<FrameGeneratorCapturerVideoTrackSource>> out;
@@ -355,7 +445,7 @@ PeerConnectionE2EQualityTest::AddVideo(TestPeer* peer) {
     rtc::scoped_refptr<VideoTrackInterface> track =
         peer->pc_factory()->CreateVideoTrack(video_config.stream_label.value(),
                                              source);
-    peer->AddTransceiver(track);
+    peer->AddTrack(track, {video_config.stream_label.value()});
   }
   return out;
 }
@@ -394,14 +484,16 @@ PeerConnectionE2EQualityTest::CreateFrameGenerator(
   return nullptr;
 }
 
-void PeerConnectionE2EQualityTest::AddAudio(TestPeer* peer) {
-  RTC_CHECK(peer->params()->audio_config);
+void PeerConnectionE2EQualityTest::MaybeAddAudio(TestPeer* peer) {
+  if (!peer->params()->audio_config) {
+    return;
+  }
+  const AudioConfig& audio_config = peer->params()->audio_config.value();
   rtc::scoped_refptr<webrtc::AudioSourceInterface> source =
-      peer->pc_factory()->CreateAudioSource(
-          peer->params()->audio_config->audio_options);
+      peer->pc_factory()->CreateAudioSource(audio_config.audio_options);
   rtc::scoped_refptr<AudioTrackInterface> track =
-      peer->pc_factory()->CreateAudioTrack("audio", source);
-  peer->AddTransceiver(track);
+      peer->pc_factory()->CreateAudioTrack(*audio_config.stream_label, source);
+  peer->AddTrack(track, {*audio_config.stream_label});
 }
 
 void PeerConnectionE2EQualityTest::SetupCall() {
