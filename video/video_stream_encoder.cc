@@ -419,6 +419,7 @@ class VideoStreamEncoder::VideoSourceProxy {
 };
 
 VideoStreamEncoder::VideoStreamEncoder(
+    Clock* clock,
     uint32_t number_of_cores,
     VideoStreamEncoderObserver* encoder_stats_observer,
     const VideoStreamEncoderSettings& settings,
@@ -446,7 +447,7 @@ VideoStreamEncoder::VideoStreamEncoder(
       max_data_payload_length_(0),
       last_observed_bitrate_bps_(0),
       encoder_paused_and_dropped_frame_(false),
-      clock_(Clock::GetRealTimeClock()),
+      clock_(clock),
       degradation_preference_(DegradationPreference::DISABLED),
       posted_frames_waiting_for_encode_(0),
       last_captured_timestamp_(0),
@@ -1749,7 +1750,7 @@ void VideoStreamEncoder::RunPostEncode(EncodedImage encoded_image,
       encoded_image.capture_time_ms_ * rtc::kNumMicrosecsPerMillisec,
       encode_duration_us);
   if (quality_scaler_ && encoded_image.qp_ >= 0)
-    quality_scaler_->ReportQp(encoded_image.qp_);
+    quality_scaler_->ReportQp(encoded_image.qp_, time_sent_us);
   if (bitrate_adjuster_) {
     bitrate_adjuster_->OnEncodedFrame(encoded_image, temporal_index);
   }

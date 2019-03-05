@@ -164,7 +164,8 @@ class Call final : public webrtc::Call,
                    public TargetTransferRateObserver,
                    public BitrateAllocator::LimitObserver {
  public:
-  Call(const Call::Config& config,
+  Call(Clock* clock,
+       const Call::Config& config,
        std::unique_ptr<RtpTransportControllerSendInterface> transport_send,
        std::unique_ptr<ProcessThread> module_process_thread,
        TaskQueueFactory* task_queue_factory);
@@ -415,21 +416,21 @@ std::string Call::Stats::ToString(int64_t time_ms) const {
 }
 
 Call* Call::Create(const Call::Config& config) {
-  return Create(config, ProcessThread::Create("PacerThread"),
-                ProcessThread::Create("ModuleProcessThread"),
-                &GlobalTaskQueueFactory());
+  return Create(
+      config, Clock::GetRealTimeClock(), ProcessThread::Create("PacerThread"),
+      ProcessThread::Create("ModuleProcessThread"), &GlobalTaskQueueFactory());
 }
 
 Call* Call::Create(const Call::Config& config,
+                   Clock* clock,
                    std::unique_ptr<ProcessThread> call_thread,
                    std::unique_ptr<ProcessThread> pacer_thread,
                    TaskQueueFactory* task_queue_factory) {
   return new internal::Call(
-      config,
+      clock, config,
       absl::make_unique<RtpTransportControllerSend>(
-          Clock::GetRealTimeClock(), config.event_log,
-          config.network_controller_factory, config.bitrate_config,
-          std::move(pacer_thread), task_queue_factory),
+          clock, config.event_log, config.network_controller_factory,
+          config.bitrate_config, std::move(pacer_thread), task_queue_factory),
       std::move(call_thread), task_queue_factory);
 }
 
@@ -445,16 +446,17 @@ VideoSendStream* Call::CreateVideoSendStream(
 
 namespace internal {
 
-Call::Call(const Call::Config& config,
+Call::Call(Clock* clock,
+           const Call::Config& config,
            std::unique_ptr<RtpTransportControllerSendInterface> transport_send,
            std::unique_ptr<ProcessThread> module_process_thread,
            TaskQueueFactory* task_queue_factory)
-    : clock_(Clock::GetRealTimeClock()),
+    : clock_(clock),
       task_queue_factory_(task_queue_factory),
       num_cpu_cores_(CpuInfo::DetectNumberOfCores()),
       module_process_thread_(std::move(module_process_thread)),
       call_stats_(new CallStats(clock_, module_process_thread_.get())),
-      bitrate_allocator_(new BitrateAllocator(this)),
+      bitrate_allocator_(new BitrateAllocator(clock_, this)),
       config_(config),
       audio_network_state_(kNetworkDown),
       video_network_state_(kNetworkDown),
@@ -803,7 +805,7 @@ webrtc::VideoSendStream* Call::CreateVideoSendStream(
   // TODO(srte): VideoSendStream should call GetWorkerQueue directly rather than
   // having it injected.
   VideoSendStream* send_stream = new VideoSendStream(
-      num_cpu_cores_, module_process_thread_.get(),
+      clock_, num_cpu_cores_, module_process_thread_.get(),
       transport_send_ptr_->GetWorkerQueue(), task_queue_factory_,
       call_stats_.get(), transport_send_ptr_, bitrate_allocator_.get(),
       video_send_delay_stats_.get(), event_log_, std::move(config),
@@ -888,7 +890,7 @@ webrtc::VideoReceiveStream* Call::CreateVideoReceiveStream(
   VideoReceiveStream* receive_stream = new VideoReceiveStream(
       task_queue_factory_, &video_receiver_controller_, num_cpu_cores_,
       transport_send_ptr_->packet_router(), std::move(configuration),
-      module_process_thread_.get(), call_stats_.get());
+      module_process_thread_.get(), call_stats_.get(), clock_);
 
   const webrtc::VideoReceiveStream::Config& config = receive_stream->config();
   {
@@ -960,7 +962,7 @@ FlexfecReceiveStream* Call::CreateFlexfecReceiveStream(
     // TODO(nisse): Fix constructor so that it can be moved outside of
     // this locked scope.
     receive_stream = new FlexfecReceiveStreamImpl(
-        &video_receiver_controller_, config, recovered_packet_receiver,
+        clock_, &video_receiver_controller_, config, recovered_packet_receiver,
         call_stats_.get(), module_process_thread_.get());
 
     RTC_DCHECK(receive_rtp_config_.find(config.remote_ssrc) ==
