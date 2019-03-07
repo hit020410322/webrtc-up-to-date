@@ -20,6 +20,7 @@
 #include "api/crypto/crypto_options.h"
 #include "api/media_transport_interface.h"
 #include "modules/rtp_rtcp/include/rtp_rtcp.h"
+#include "modules/rtp_rtcp/source/rtp_sender_audio.h"
 #include "rtc_base/function_view.h"
 #include "rtc_base/task_queue.h"
 
@@ -55,11 +56,11 @@ class ChannelSendInterface {
  public:
   virtual ~ChannelSendInterface() = default;
 
-  virtual bool ReceivedRTCPPacket(const uint8_t* packet, size_t length) = 0;
+  virtual void ReceivedRTCPPacket(const uint8_t* packet, size_t length) = 0;
 
   virtual CallSendStatistics GetRTCPStatistics() const = 0;
 
-  virtual bool SetEncoder(int payload_type,
+  virtual void SetEncoder(int payload_type,
                           std::unique_ptr<AudioEncoder> encoder) = 0;
   virtual void ModifyEncoder(
       rtc::FunctionView<void(std::unique_ptr<AudioEncoder>*)> modifier) = 0;
@@ -81,7 +82,9 @@ class ChannelSendInterface {
   virtual void ResetSenderCongestionControlObjects() = 0;
   virtual std::vector<ReportBlock> GetRemoteRTCPReportBlocks() const = 0;
   virtual ANAStats GetANAStatistics() const = 0;
-  virtual bool SetSendTelephoneEventPayloadType(int payload_type,
+  virtual void RegisterCngPayloadType(int payload_type,
+                                      int payload_frequency) = 0;
+  virtual void SetSendTelephoneEventPayloadType(int payload_type,
                                                 int payload_frequency) = 0;
   virtual bool SendTelephoneEventOutband(int event, int duration_ms) = 0;
   virtual void OnBitrateAllocation(BitrateAllocationUpdate update) = 0;

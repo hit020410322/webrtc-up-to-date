@@ -240,8 +240,7 @@ struct ConfigHelper {
     EXPECT_TRUE(channel_send_);
     EXPECT_CALL(*channel_send_, SetSendTelephoneEventPayloadType(
                                     kTelephoneEventPayloadType,
-                                    kTelephoneEventPayloadFrequency))
-        .WillOnce(Return(true));
+                                    kTelephoneEventPayloadFrequency));
     EXPECT_CALL(
         *channel_send_,
         SendTelephoneEventOutband(kTelephoneEventCode, kTelephoneEventDuration))
@@ -451,6 +450,7 @@ TEST(AudioSendStreamTest, SendCodecCanApplyVad) {
             stolen_encoder = std::move(*encoder);
             return true;
           }));
+  EXPECT_CALL(*helper.channel_send(), RegisterCngPayloadType(105, 8000));
 
   auto send_stream = helper.CreateAudioSendStream();
 
@@ -500,7 +500,9 @@ TEST(AudioSendStreamTest, DontRecreateEncoder) {
   // to ConfigHelper (say to WillRepeatedly) would silently make this test
   // useless.
   EXPECT_CALL(*helper.channel_send(), SetEncoderForMock(_, _))
-      .WillOnce(Return(true));
+      .WillOnce(Return());
+
+  EXPECT_CALL(*helper.channel_send(), RegisterCngPayloadType(105, 8000));
 
   helper.config().send_codec_spec =
       AudioSendStream::Config::SendCodecSpec(9, kG722Format);

@@ -165,7 +165,8 @@ void RtpTransportControllerSend::SetAllocatedSendBitrateLimits(
     int max_padding_bitrate_bps,
     int max_total_bitrate_bps) {
   RTC_DCHECK_RUN_ON(&task_queue_);
-  streams_config_.min_pacing_rate = DataRate::bps(min_send_bitrate_bps);
+  streams_config_.min_total_allocated_bitrate =
+      DataRate::bps(min_send_bitrate_bps);
   streams_config_.max_padding_rate = DataRate::bps(max_padding_bitrate_bps);
   streams_config_.max_total_allocated_bitrate =
       DataRate::bps(max_total_bitrate_bps);
@@ -471,7 +472,7 @@ void RtpTransportControllerSend::UpdateInitialConstraints(
 void RtpTransportControllerSend::StartProcessPeriodicTasks() {
   if (!pacer_queue_update_task_.Running()) {
     pacer_queue_update_task_ = RepeatingTaskHandle::DelayedStart(
-        &task_queue_, kPacerQueueUpdateInterval, [this]() {
+        task_queue_.Get(), kPacerQueueUpdateInterval, [this]() {
           RTC_DCHECK_RUN_ON(&task_queue_);
           TimeDelta expected_queue_time =
               TimeDelta::ms(pacer_.ExpectedQueueTimeMs());
@@ -483,7 +484,7 @@ void RtpTransportControllerSend::StartProcessPeriodicTasks() {
   controller_task_.Stop();
   if (process_interval_.IsFinite()) {
     controller_task_ = RepeatingTaskHandle::DelayedStart(
-        &task_queue_, process_interval_, [this]() {
+        task_queue_.Get(), process_interval_, [this]() {
           RTC_DCHECK_RUN_ON(&task_queue_);
           UpdateControllerWithTimeInterval();
           return process_interval_;

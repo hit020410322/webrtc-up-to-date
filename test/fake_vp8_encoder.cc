@@ -45,17 +45,8 @@ namespace webrtc {
 
 namespace test {
 
-FakeVP8Encoder::FakeVP8Encoder(Clock* clock)
-    : FakeEncoder(clock), callback_(nullptr) {
-  FakeEncoder::RegisterEncodeCompleteCallback(this);
+FakeVP8Encoder::FakeVP8Encoder(Clock* clock) : FakeEncoder(clock) {
   sequence_checker_.Detach();
-}
-
-int32_t FakeVP8Encoder::RegisterEncodeCompleteCallback(
-    EncodedImageCallback* callback) {
-  RTC_DCHECK_CALLED_SEQUENTIALLY(&sequence_checker_);
-  callback_ = callback;
-  return 0;
 }
 
 int32_t FakeVP8Encoder::InitEncode(const VideoCodec* config,
@@ -106,32 +97,28 @@ void FakeVP8Encoder::PopulateCodecSpecific(CodecSpecificInfo* codec_specific,
                                            uint32_t timestamp) {
   RTC_DCHECK_CALLED_SEQUENTIALLY(&sequence_checker_);
   codec_specific->codecType = kVideoCodecVP8;
-  CodecSpecificInfoVP8* vp8Info = &(codec_specific->codecSpecific.VP8);
-  vp8Info->keyIdx = kNoKeyIdx;
-  vp8Info->nonReference = false;
+  codec_specific->codecSpecific.VP8.keyIdx = kNoKeyIdx;
+  codec_specific->codecSpecific.VP8.nonReference = false;
   temporal_layers_[stream_idx]->OnEncodeDone(
-      timestamp, size_bytes, frame_type == kVideoFrameKey, -1, vp8Info);
+      timestamp, size_bytes, frame_type == kVideoFrameKey, -1, codec_specific);
 }
 
-EncodedImageCallback::Result FakeVP8Encoder::OnEncodedImage(
-    const EncodedImage& encoded_image,
-    const CodecSpecificInfo* codec_specific_info,
-    const RTPFragmentationHeader* fragments) {
+std::unique_ptr<RTPFragmentationHeader> FakeVP8Encoder::EncodeHook(
+    EncodedImage* encoded_image,
+    CodecSpecificInfo* codec_specific) {
   RTC_DCHECK_CALLED_SEQUENTIALLY(&sequence_checker_);
-  uint8_t stream_idx = encoded_image.SpatialIndex().value_or(0);
-  CodecSpecificInfo overrided_specific_info;
-  temporal_layers_[stream_idx]->UpdateLayerConfig(encoded_image.Timestamp());
-  PopulateCodecSpecific(&overrided_specific_info, encoded_image.size(),
-                        encoded_image._frameType, stream_idx,
-                        encoded_image.Timestamp());
+  uint8_t stream_idx = encoded_image->SpatialIndex().value_or(0);
+  temporal_layers_[stream_idx]->UpdateLayerConfig(encoded_image->Timestamp());
+  PopulateCodecSpecific(codec_specific, encoded_image->size(),
+                        encoded_image->_frameType, stream_idx,
+                        encoded_image->Timestamp());
 
   // Write width and height to the payload the same way as the real encoder
   // does.
-  WriteFakeVp8(encoded_image.buffer(), encoded_image._encodedWidth,
-               encoded_image._encodedHeight,
-               encoded_image._frameType == kVideoFrameKey);
-  return callback_->OnEncodedImage(encoded_image, &overrided_specific_info,
-                                   fragments);
+  WriteFakeVp8(encoded_image->data(), encoded_image->_encodedWidth,
+               encoded_image->_encodedHeight,
+               encoded_image->_frameType == kVideoFrameKey);
+  return nullptr;
 }
 
 VideoEncoder::EncoderInfo FakeVP8Encoder::GetEncoderInfo() const {
